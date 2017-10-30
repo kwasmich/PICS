@@ -11,7 +11,7 @@
 #include <ctype.h>
 #include <stddef.h>
 #include <stdio.h>
-#include <strings.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
 
@@ -20,7 +20,7 @@
 
 
 #define ISspace(x) isspace((int)(x))
-#define SERVER_STRING "Server: kwasihttpd/0.0.1\r\n"
+#define SERVER_STRING "Server: PICS/0.0.1\r\n"
 
 
 

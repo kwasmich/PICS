@@ -35,14 +35,9 @@
 #include "uvcCamera.h"
 
 
-#define ISspace(x) isspace((int)(x))
-
-#define SERVER_STRING "Server: jdbhttpd/0.1.0\r\n"
 
 void error_die(const char *);
 int startup(u_short *);
-
-
 
 
 
@@ -106,12 +101,7 @@ int main(void)
 //    assert(err == 0);
     //printf(st.)
 
-
-
-
     signal(SIGPIPE, SIG_IGN); // ignore broken pipe
-
-
 
     int server_sock = -1;
     u_short port = 10000;
@@ -124,18 +114,14 @@ int main(void)
 
     uvcInit();
     
-    while (1)
-    {
+    while (true) {
         httpClient_s *client = malloc(sizeof(httpClient_s));
         client->socket = accept(server_sock, (struct sockaddr *)&client_name, &client_name_len);
 
         if (client->socket == -1) {
-            //error_die("accept");
             printf("accept error");
             continue;
         }
-
-//        httpClientThread(client);
 
         int result = pthread_create(&newthread , NULL, httpClientThread, client);
 
@@ -145,6 +131,5 @@ int main(void)
     }
     
     close(server_sock);
-    
     return(0);
 }
