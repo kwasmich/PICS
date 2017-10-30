@@ -15,6 +15,7 @@
 
 
 void uvcInit(void);
+void uvcDeinit(void);
 
 void uvcConnectClient();
 void uvcDisconnectClient();

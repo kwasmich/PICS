@@ -19,21 +19,21 @@
 
 
 typedef struct {
-    pthread_t thread;
     pthread_cond_t frameReadyCond;
     pthread_cond_t frameConsumingDoneCond;
     pthread_cond_t clientsWaitingCond;
     pthread_cond_t clientConnectedCond;
     pthread_mutex_t frameMutex;
+    pthread_t thread;
 
-    uint8_t *imageData;
-    size_t imageSize;
+    volatile uint8_t *imageData;
+    volatile size_t imageSize;
     int fd;
-    int numClients;
-    int numWaitingClients;
-    int numProcessingClients;
+    volatile int numClients;
+    volatile int numWaitingClients;
+    volatile int numProcessingClients;
+    volatile bool keepAlive;
     bool isActive;
-    bool keepAlive;
 } uvcCamera_s;
 
 
@@ -142,6 +142,12 @@ static void * cameraThread(void *data) {
             while (camera->numClients == 0) {
                 result = pthread_cond_wait(&camera->clientConnectedCond, &camera->frameMutex);
                 assert(result == 0);
+
+                if (!camera->keepAlive) {
+                    result = pthread_mutex_unlock(&camera->frameMutex);
+                    assert(result == 0);
+                    goto exit;
+                }
             }
 
             result = pthread_mutex_unlock(&camera->frameMutex);
@@ -150,9 +156,7 @@ static void * cameraThread(void *data) {
         }
     }
 
-    if (camera->isActive) {
-        stopCamera(camera);
-    }
+exit:
 
     result = pthread_mutex_destroy(&camera->frameMutex);
     assert(result == 0);
@@ -168,6 +172,10 @@ static void * cameraThread(void *data) {
 
     result = pthread_cond_destroy(&camera->frameReadyCond);
     assert(result == 0);
+
+    if (camera->isActive) {
+        stopCamera(camera);
+    }
 
     return NULL;
 }
@@ -248,6 +256,10 @@ void uvcGetImageDone(int videoIndex) {
 
 
 void uvcInit() {
+    printf("pthread_t: %zd\n", sizeof(pthread_t));
+    printf("pthread_cond_t: %zd\n", sizeof(pthread_cond_t));
+    printf("pthread_mutex_t: %zd\n", sizeof(pthread_mutex_t));
+
     s_video.imageData = NULL;
     s_video.imageSize = 0;
     s_video.fd = -1;
@@ -261,3 +273,11 @@ void uvcInit() {
     assert(result == 0);
 }
 
+
+
+void uvcDeinit() {
+    s_video.keepAlive = false;
+    int result = pthread_cond_signal(&s_video.clientConnectedCond);
+    assert(result == 0);
+    pthread_join(s_video.thread, NULL);
+}

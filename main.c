@@ -91,10 +91,30 @@ int startup(u_short *port)
 
 
 
-/**********************************************************************/
 
-int main(void)
-{
+
+int s_server_sock = -1;
+
+
+
+static void destroy() {
+    fputs("destroy\n", stderr);
+    uvcDeinit();
+    close(s_server_sock);
+}
+
+
+
+static void terminated(const int in_SIG) {
+    fprintf(stderr, "\nTERMINATING due to signal %i\n", in_SIG);
+    exit(1);
+}
+
+
+
+int main(void) {
+    atexit(destroy);
+    signal(SIGINT, terminated);
 //    int err = 0;
 //    struct stat st;
 //    err = stat("/dev/video0", &st);
@@ -103,20 +123,20 @@ int main(void)
 
     signal(SIGPIPE, SIG_IGN); // ignore broken pipe
 
-    int server_sock = -1;
+
     u_short port = 10000;
     struct sockaddr_in client_name;
     socklen_t client_name_len = sizeof(client_name);
     pthread_t newthread;
     
-    server_sock = startup(&port);
+    s_server_sock = startup(&port);
     printf("httpd running on port %d\n", port);
 
     uvcInit();
     
     while (true) {
         httpClient_s *client = malloc(sizeof(httpClient_s));
-        client->socket = accept(server_sock, (struct sockaddr *)&client_name, &client_name_len);
+        client->socket = accept(s_server_sock, (struct sockaddr *)&client_name, &client_name_len);
 
         if (client->socket == -1) {
             printf("accept error");
@@ -129,7 +149,6 @@ int main(void)
             perror("pthread_create");
         }
     }
-    
-    close(server_sock);
-    return(0);
+
+    return 0;
 }
