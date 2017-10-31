@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include "mmapHelper.h"
 
@@ -37,7 +38,7 @@ typedef struct {
 } uvcCamera_s;
 
 
-static uvcCamera_s s_video;
+static uvcCamera_s s_video[10];
 MapFile_s s_mapA;
 MapFile_s s_mapB;
 bool s_toggleImage;
@@ -182,102 +183,115 @@ exit:
 
 
 
-void uvcConnectClient() {
+void uvcConnectClient(int device) {
+    uvcCamera_s *camera = &s_video[device];
     int result;
-    result = pthread_mutex_lock(&s_video.frameMutex);
+    result = pthread_mutex_lock(&camera->frameMutex);
     assert(result == 0);
 
-    s_video.numClients++;
+    camera->numClients++;
 
-    if (s_video.numClients == 1) {
-        result = pthread_cond_signal(&s_video.clientConnectedCond);
+    if (camera->numClients == 1) {
+        result = pthread_cond_signal(&camera->clientConnectedCond);
         assert(result == 0);
     }
 
-    result = pthread_mutex_unlock(&s_video.frameMutex);
+    result = pthread_mutex_unlock(&camera->frameMutex);
     assert(result == 0);
 }
 
 
 
-void uvcDisconnectClient() {
+void uvcDisconnectClient(int device) {
+    uvcCamera_s *camera = &s_video[device];
     int result;
-    result = pthread_mutex_lock(&s_video.frameMutex);
+    result = pthread_mutex_lock(&camera->frameMutex);
     assert(result == 0);
 
-    s_video.numClients--;
+    camera->numClients--;
 
-    if (s_video.numWaitingClients >= s_video.numClients) {
-        result = pthread_cond_signal(&s_video.clientsWaitingCond);
+    if (camera->numWaitingClients >= camera->numClients) {
+        result = pthread_cond_signal(&camera->clientsWaitingCond);
         assert(result == 0);
     }
 
-    result = pthread_mutex_unlock(&s_video.frameMutex);
+    result = pthread_mutex_unlock(&camera->frameMutex);
     assert(result == 0);
 }
 
 
 
-void uvcGetImage(int videoIndex, uint8_t **data, size_t *len) {
+void uvcGetImage(int device, uint8_t **data, size_t *len) {
+    uvcCamera_s *camera = &s_video[device];
     int result;
-    result = pthread_mutex_lock(&s_video.frameMutex);
+    result = pthread_mutex_lock(&camera->frameMutex);
     assert(result == 0);
 
-    s_video.numWaitingClients++;
+    camera->numWaitingClients++;
 
-    if (s_video.numWaitingClients == s_video.numClients) {
-        result = pthread_cond_signal(&s_video.clientsWaitingCond);
+    if (camera->numWaitingClients == camera->numClients) {
+        result = pthread_cond_signal(&camera->clientsWaitingCond);
         assert(result == 0);
     }
 
-    result = pthread_cond_wait(&s_video.frameReadyCond, &s_video.frameMutex);
+    result = pthread_cond_wait(&camera->frameReadyCond, &camera->frameMutex);
     assert(result == 0);
 
     //puts("got Image");
-    *data = s_video.imageData;
-    *len = s_video.imageSize;
+    *data = camera->imageData;
+    *len = camera->imageSize;
 }
 
 
 
-void uvcGetImageDone(int videoIndex) {
+void uvcGetImageDone(int device) {
+    uvcCamera_s *camera = &s_video[device];
     int result;
-    s_video.numProcessingClients--;
+    camera->numProcessingClients--;
 
-    if (s_video.numProcessingClients == 0) {
-        result = pthread_cond_signal(&s_video.frameConsumingDoneCond);
+    if (camera->numProcessingClients == 0) {
+        result = pthread_cond_signal(&camera->frameConsumingDoneCond);
         assert(result == 0);
     }
 
-    result = pthread_mutex_unlock(&s_video.frameMutex);
+    result = pthread_mutex_unlock(&camera->frameMutex);
     assert(result == 0);
 }
 
 
 
-void uvcInit() {
-    printf("pthread_t: %zd\n", sizeof(pthread_t));
-    printf("pthread_cond_t: %zd\n", sizeof(pthread_cond_t));
-    printf("pthread_mutex_t: %zd\n", sizeof(pthread_mutex_t));
+void uvcInit(int device) {
+    uvcCamera_s *camera = &s_video[device];
+    camera->imageData = NULL;
+    camera->imageSize = 0;
+    camera->fd = -1;
+    camera->numClients = 0;
+    camera->numWaitingClients = 0;
+    camera->numProcessingClients = 0;
+    camera->keepAlive = true;
+    camera->isActive = false;
 
-    s_video.imageData = NULL;
-    s_video.imageSize = 0;
-    s_video.fd = -1;
-    s_video.numClients = 0;
-    s_video.numWaitingClients = 0;
-    s_video.numProcessingClients = 0;
-    s_video.keepAlive = true;
-    s_video.isActive = false;
-
-    int result = pthread_create(&s_video.thread , NULL, cameraThread, &s_video);
-    assert(result == 0);
+    int err;
+    struct stat st;
+    char path[12];
+    sprintf(path, "/dev/video%d", device);
+    err = stat(path, &st);
+    
+    if (err == 0) {
+        err = pthread_create(&camera->thread , NULL, cameraThread, &s_video);
+        assert(err == 0);
+    }
 }
 
 
 
-void uvcDeinit() {
-    s_video.keepAlive = false;
-    int result = pthread_cond_signal(&s_video.clientConnectedCond);
-    assert(result == 0);
-    pthread_join(s_video.thread, NULL);
+void uvcDeinit(int device) {
+    uvcCamera_s *camera = &s_video[device];
+
+    if (camera->thread) {
+        camera->keepAlive = false;
+        int result = pthread_cond_signal(&camera->clientConnectedCond);
+        assert(result == 0);
+        pthread_join(camera->thread, NULL);
+    }
 }

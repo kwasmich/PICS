@@ -14,14 +14,14 @@
 #include <stdint.h>
 
 
-void uvcInit(void);
-void uvcDeinit(void);
+void uvcInit(int device);
+void uvcDeinit(int device);
 
-void uvcConnectClient();
-void uvcDisconnectClient();
+void uvcConnectClient(int device);
+void uvcDisconnectClient(int device);
 
-void uvcGetImage(int videoIndex, uint8_t **data, size_t *len);
-void uvcGetImageDone(int videoIndex);
+void uvcGetImage(int device, uint8_t **data, size_t *len);
+void uvcGetImageDone(int device);
 
 
 #endif /* uvcCamera_h */

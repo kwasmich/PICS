@@ -14,22 +14,16 @@
  *  4) Uncomment the line that runs accept_request().
  *  5) Remove -lsocket from the Makefile.
  */
-#include <assert.h>
-#include <stdbool.h>
-#include <stdio.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <netinet/in.h>
+
 #include <arpa/inet.h>
-#include <unistd.h>
-#include <ctype.h>
-#include <strings.h>
-#include <string.h>
-#include <sys/stat.h>
 #include <pthread.h>
-#include <sys/wait.h>
-#include <stdlib.h>
 #include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
 
 #include "httpClient.h"
 #include "uvcCamera.h"
@@ -99,7 +93,11 @@ int s_server_sock = -1;
 
 static void destroy() {
     fputs("destroy\n", stderr);
-    uvcDeinit();
+
+    for (int i = 0; i < 10; i++) {
+        uvcDeinit(i);
+    }
+
     close(s_server_sock);
 }
 
@@ -115,14 +113,7 @@ static void terminated(const int in_SIG) {
 int main(void) {
     atexit(destroy);
     signal(SIGINT, terminated);
-//    int err = 0;
-//    struct stat st;
-//    err = stat("/dev/video0", &st);
-//    assert(err == 0);
-    //printf(st.)
-
     signal(SIGPIPE, SIG_IGN); // ignore broken pipe
-
 
     u_short port = 10000;
     struct sockaddr_in client_name;
@@ -132,8 +123,10 @@ int main(void) {
     s_server_sock = startup(&port);
     printf("httpd running on port %d\n", port);
 
-    uvcInit();
-    
+    for (int i = 0; i < 10; i++) {
+        uvcInit(i);
+    }
+
     while (true) {
         httpClient_s *client = malloc(sizeof(httpClient_s));
         client->socket = accept(s_server_sock, (struct sockaddr *)&client_name, &client_name_len);
