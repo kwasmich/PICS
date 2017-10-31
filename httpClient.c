@@ -8,7 +8,6 @@
 
 #include "httpClient.h"
 
-#include <ctype.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
@@ -21,12 +20,11 @@
 
 
 
-#define ISspace(x) isspace((int)(x))
 #define SERVER_STRING "Server: PICS/0.0.1\r\n"
 
 
 
-static int get_line(int socket, char *buf, int size) {
+static int getLine(int socket, char *buf, int size) {
     int i = 0;
     char c = '\0';
     ssize_t n;
@@ -59,13 +57,6 @@ static int get_line(int socket, char *buf, int size) {
 
 
 static void discardHeaders(int socket) {
-    //    char buf[1024];
-    //    int numChars;
-    //
-    //    do {
-    //        numChars = get_line(socket, buf, sizeof buf);
-    //    } while ((numChars > 0) && strncmp("\n", buf, 2));
-
     char c;
     int i = 0;
     ssize_t n;
@@ -88,71 +79,36 @@ static void discardHeaders(int socket) {
 
 
 static void headers(int client, const char *filePath) {
-    char buf[1024];
     (void)filePath;  /* could use filename to determine file type */
-
-    strcpy(buf, "HTTP/1.0 200 OK\r\n");
-    send(client, buf, strlen(buf), 0);
-    strcpy(buf, SERVER_STRING);
-    send(client, buf, strlen(buf), 0);
-    sprintf(buf, "Content-Type: text/html\r\n");
-    send(client, buf, strlen(buf), 0);
-    strcpy(buf, "\r\n");
+    char buf[] = ("HTTP/1.1 200 OK\r\n"
+                  SERVER_STRING
+                  "Content-Type: text/html\r\n"
+                  "\r\n");
     send(client, buf, strlen(buf), 0);
 }
 
 
 
-static void not_found(int socket) {
-    char buf[1024];
-
-    sprintf(buf, "HTTP/1.0 404 NOT FOUND\r\n");
+static void notFound(int socket) {
+    char buf[] = ("HTTP/1.1 404 NOT FOUND\r\n"
+                  SERVER_STRING
+                  "Content-Type: text/html\r\n"
+                  "\r\n"
+                  "<HTML><HEAD><TITLE>Not Found</TITLE></HEAD>\r\n"
+                  "<BODY><H1>404 Not Found</H1></BODY></HTML>\r\n");
     send(socket, buf, strlen(buf), 0);
-    sprintf(buf, SERVER_STRING);
-    send(socket, buf, strlen(buf), 0);
-    sprintf(buf, "Content-Type: text/html\r\n");
-    send(socket, buf, strlen(buf), 0);
-    sprintf(buf, "\r\n");
-    send(socket, buf, strlen(buf), 0);
-    sprintf(buf, "<HTML><TITLE>Not Found</TITLE>\r\n");
-    send(socket, buf, strlen(buf), 0);
-    sprintf(buf, "<BODY><P>The server could not fulfill\r\n");
-    send(socket, buf, strlen(buf), 0);
-    sprintf(buf, "your request because the resource specified\r\n");
-    send(socket, buf, strlen(buf), 0);
-    sprintf(buf, "is unavailable or nonexistent.\r\n");
-    send(socket, buf, strlen(buf), 0);
-    sprintf(buf, "</BODY></HTML>\r\n");
-    send(socket, buf, strlen(buf), 0);
-
-    shutdown(socket, SHUT_RDWR);
-    close(socket);
 }
 
 
 
 static void unimplemented(int socket) {
-    char buf[1024];
-
-    sprintf(buf, "HTTP/1.0 501 Method Not Implemented\r\n");
+    char buf[] = ("HTTP/1.1 501 Not Implemented\r\n"
+                  SERVER_STRING
+                  "Content-Type: text/html\r\n"
+                  "\r\n"
+                  "<HTML><HEAD><TITLE>Not Implemented</TITLE></HEAD>\r\n"
+                  "<BODY><H1>501 Not Implemented</H1></BODY></HTML>\r\n");
     send(socket, buf, strlen(buf), 0);
-    sprintf(buf, SERVER_STRING);
-    send(socket, buf, strlen(buf), 0);
-    sprintf(buf, "Content-Type: text/html\r\n");
-    send(socket, buf, strlen(buf), 0);
-    sprintf(buf, "\r\n");
-    send(socket, buf, strlen(buf), 0);
-    sprintf(buf, "<HTML><HEAD><TITLE>Method Not Implemented\r\n");
-    send(socket, buf, strlen(buf), 0);
-    sprintf(buf, "</TITLE></HEAD>\r\n");
-    send(socket, buf, strlen(buf), 0);
-    sprintf(buf, "<BODY><P>HTTP request method not supported.\r\n");
-    send(socket, buf, strlen(buf), 0);
-    sprintf(buf, "</BODY></HTML>\r\n");
-    send(socket, buf, strlen(buf), 0);
-
-    shutdown(socket, SHUT_RDWR);
-    close(socket);
 }
 
 
@@ -169,40 +125,34 @@ static void serveFile(int socket, const char *filePath) {
 
 
 
-static void stream(httpClient_s *client) {
+static void stream(httpClient_s *client, int device) {
     printf("connected client: %d\n", client->socket);
-    uvcConnectClient(0);
-    char header[] = ""
-    "HTTP/1.0 200 OK\n"
-    "Age: 0\n"
-    "Cache-Control: no-cache, private\n"
-    "Pragma: no-cache\n"
-    "Content-Type: multipart/x-mixed-replace; boundary=FRAME\n\n";
-    char separator[] = "--FRAME\n";
-    char header2[] = ""
-    "Content-Type: image/jpeg\n"
-    "Content-Length: %d\n\n";
+    uvcConnectClient(device);
+    char header[] = ("HTTP/1.1 200 OK\r\n"
+                     "Age: 0\r\n"
+                     "Cache-Control: no-cache, private\r\n"
+                     "Pragma: no-cache\r\n"
+                     "Content-Type: multipart/x-mixed-replace; boundary=FRAME\r\n"
+                     "\r\n");
+    char separator[] = "--FRAME\r\n";
+    char header2[] = ("Content-Type: image/jpeg\r\n"
+                      "Content-Length: %d\r\n"
+                      "\r\n");
     char header2a[1024];
 
-    char buf[1024];
-    int numchars = 0;
+    discardHeaders(client->socket);
 
-    do { /* read & discard headers */
-        numchars = get_line(client->socket, buf, sizeof(buf));
-    } while ((numchars > 0) && strcmp("\n", buf));
-
-    //    sprintf(buf, "HTTP/1.0 200 OK\r\n");
+    //    sprintf(buf, "HTTP/1.1 200 OK\r\n");
     //    send(client, buf, strlen(buf), 0);
     send(client->socket, header, strlen(header), 0);
     ssize_t err = 0;
     uint8_t *imageData = NULL;
     size_t imageSize = 0;
 
-    int cnt = 300;
+    int cnt = 100;
 
-
-    while (true && cnt) {
-        uvcGetImage(0, &imageData, &imageSize);
+    while (client->keepAlive && cnt) {
+        uvcGetImage(device, &imageData, &imageSize);
         sprintf(header2a, header2, imageSize);
         err = send(client->socket, separator, strlen(separator), 0);
         if (err == -1) break;
@@ -210,17 +160,17 @@ static void stream(httpClient_s *client) {
         if (err == -1) break;
         err = write(client->socket, imageData, imageSize);
         if (err == -1) break;
-        uvcGetImageDone(0);
+        uvcGetImageDone(device);
         cnt--;
     }
 
     printf("disconnected client: %d\n", client->socket);
 
     if (err == -1) {
-        uvcGetImageDone(0);
+        uvcGetImageDone(device);
     }
     
-    uvcDisconnectClient(0);
+    uvcDisconnectClient(device);
 }
 
 
@@ -232,7 +182,6 @@ static void stream(httpClient_s *client) {
 /**********************************************************************/
 void * httpClientThread(void *data) {
     httpClient_s *client = data;
-
     char buf[1024];
     int numChars;
     char *buffer;
@@ -241,10 +190,8 @@ void * httpClientThread(void *data) {
     char *query;
     char *httpVersion;
 
-//    int cameraIndex = -1;
-
     buffer = buf;
-    numChars = get_line(client->socket, buf, sizeof(buf));
+    numChars = getLine(client->socket, buf, sizeof buf);
     method = strsep(&buffer, " ");
     path = strsep(&buffer, " ");
     httpVersion = strsep(&buffer, " ");
@@ -253,11 +200,15 @@ void * httpClientThread(void *data) {
 
     if (strcasecmp(method, "GET")) {
         unimplemented(client->socket);
-        return NULL;
-    }
+    } else if (strncasecmp(path, "/dev/video", strlen("/dev/video")) == 0) {
+        int device = -1;
+        int scanned = sscanf(path, "/dev/video%d", &device);
 
-    if (strncasecmp(path, "/dev/video", strlen("/dev/video")) == 0) {
-        stream(client);
+        if ((scanned == 1) && (device >= 0) && (device < 10) && uvcDoesCameraExist(device)) {
+            stream(client, device);
+        } else {
+            notFound(client->socket);
+        }
     } else {
         char filePath[1024];
         sprintf(filePath, "htdocs%s", path);
@@ -267,14 +218,11 @@ void * httpClientThread(void *data) {
             strlcat(filePath, "index.html", sizeof filePath);
         }
 
-        printf("%s\n", filePath);
-
         struct stat st;
         int err = stat(filePath, &st);
 
         if (err == -1) {
-            not_found(client->socket);
-            return NULL;
+            notFound(client->socket);
         } else {
             if ((st.st_mode & S_IFMT) == S_IFDIR) {
                 strlcat(filePath, "/index.html", sizeof filePath);

@@ -10,6 +10,7 @@
 #define uvcCamera_h
 
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -17,6 +18,7 @@
 void uvcInit(int device);
 void uvcDeinit(int device);
 
+bool uvcDoesCameraExist(int device);
 void uvcConnectClient(int device);
 void uvcDisconnectClient(int device);
 

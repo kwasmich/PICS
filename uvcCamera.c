@@ -10,7 +10,6 @@
 
 #include <assert.h>
 #include <pthread.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -183,6 +182,13 @@ exit:
 
 
 
+bool uvcDoesCameraExist(int device) {
+    uvcCamera_s *camera = &s_video[device];
+    return camera->thread;
+}
+
+
+
 void uvcConnectClient(int device) {
     uvcCamera_s *camera = &s_video[device];
     int result;
@@ -277,7 +283,7 @@ void uvcInit(int device) {
     sprintf(path, "/dev/video%d", device);
     err = stat(path, &st);
     
-    if (err == 0) {
+    if ((err == 0) || (device == 0)) {
         err = pthread_create(&camera->thread , NULL, cameraThread, &s_video);
         assert(err == 0);
     }
