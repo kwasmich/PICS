@@ -15,8 +15,8 @@
 #include <stdint.h>
 
 
-void uvcInit(int device);
-void uvcDeinit(int device);
+void uvcInitWorker(int device);
+void uvcDeinitWorker(int device);
 
 bool uvcDoesCameraExist(int device);
 void uvcConnectClient(int device);

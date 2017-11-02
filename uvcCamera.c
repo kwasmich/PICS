@@ -14,7 +14,9 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
-#include "mmapHelper.h"
+#include <linux/videodev2.h>
+
+#include "uvcCapture.h"
 
 
 
@@ -26,131 +28,199 @@ typedef struct {
     pthread_mutex_t frameMutex;
     pthread_t thread;
 
-    volatile uint8_t *imageData;
-    volatile size_t imageSize;
-    int fd;
-    volatile int numClients;
-    volatile int numWaitingClients;
-    volatile int numProcessingClients;
-    volatile bool keepAlive;
+    uvcCamera_s *camera;
+    uint8_t *imageData;
+    size_t imageSize;
+    int numClients;
+    int numWaitingClients;
+    int numProcessingClients;
+    bool keepAlive;
     bool isActive;
-} uvcCamera_s;
+} uvcCameraWorker_s;
 
 
-static uvcCamera_s s_video[10];
-MapFile_s s_mapA;
-MapFile_s s_mapB;
-bool s_toggleImage;
+static uvcCameraWorker_s s_video[10];
+
+struct timeval s_timeout = { .tv_sec = 2, .tv_usec = 0 };
 
 
+// https://gist.github.com/bellbind/6813905
+#include <jpeglib.h>
+#include <stdlib.h>
 
-static void startCamera(uvcCamera_s *camera) {
-    puts("startCamera");
-    camera->isActive = true;
+static void jpeg(uint8_t **out_buffer, size_t *out_bufferSize, uint8_t* rgb, uint32_t width, uint32_t height, int quality) {
+    JSAMPARRAY image;
+    image = calloc(height, sizeof (JSAMPROW));
+
+    for (size_t i = 0; i < height; i++) {
+        image[i] = calloc(width * 3, sizeof (JSAMPLE));
+
+        for (size_t j = 0; j < width; j++) {
+            image[i][j * 3 + 0] = rgb[(i * width + j) * 3 + 0];
+            image[i][j * 3 + 1] = rgb[(i * width + j) * 3 + 1];
+            image[i][j * 3 + 2] = rgb[(i * width + j) * 3 + 2];
+        }
+    }
+
+    if (*out_buffer) {
+        free(*out_buffer);
+        *out_buffer = NULL;
+    }
+
+    struct jpeg_compress_struct compress;
+    struct jpeg_error_mgr error;
+    compress.err = jpeg_std_error(&error);
+    jpeg_create_compress(&compress);
+    jpeg_mem_dest(&compress, out_buffer, out_bufferSize);
+
+    compress.image_width = width;
+    compress.image_height = height;
+    compress.input_components = 3;
+    compress.in_color_space = JCS_RGB;
+    jpeg_set_defaults(&compress);
+    jpeg_set_quality(&compress, quality, TRUE);
+    jpeg_start_compress(&compress, TRUE);
+    jpeg_write_scanlines(&compress, image, height);
+    jpeg_finish_compress(&compress);
+    jpeg_destroy_compress(&compress);
+
+    for (size_t i = 0; i < height; i++) {
+        free(image[i]);
+    }
+
+    free(image);
+}
+
+
+static int minmax(int min, int v, int max) {
+    return (v < min) ? min : (max < v) ? max : v;
+}
+
+static uint8_t* yuyv2rgb(uint8_t* yuyv, uint32_t width, uint32_t height) {
+    uint8_t* rgb = calloc(width * height * 3, sizeof (uint8_t));
+    for (size_t i = 0; i < height; i++) {
+        for (size_t j = 0; j < width; j += 2) {
+            size_t index = i * width + j;
+            int y0 = yuyv[index * 2 + 0] << 8;
+            int u = yuyv[index * 2 + 1] - 128;
+            int y1 = yuyv[index * 2 + 2] << 8;
+            int v = yuyv[index * 2 + 3] - 128;
+            rgb[index * 3 + 0] = minmax(0, (y0 + 359 * v) >> 8, 255);
+            rgb[index * 3 + 1] = minmax(0, (y0 + 88 * v - 183 * u) >> 8, 255);
+            rgb[index * 3 + 2] = minmax(0, (y0 + 454 * u) >> 8, 255);
+            rgb[index * 3 + 3] = minmax(0, (y1 + 359 * v) >> 8, 255);
+            rgb[index * 3 + 4] = minmax(0, (y1 + 88 * v - 183 * u) >> 8, 255);
+            rgb[index * 3 + 5] = minmax(0, (y1 + 454 * u) >> 8, 255);
+        }
+    }
+    return rgb;
 }
 
 
 
-static void captureImage(uvcCamera_s *camera) {
+
+
+
+
+
+
+static void startCamera(uvcCameraWorker_s *cameraWorker) {
+    puts("startCamera");
+    cameraWorker->isActive = true;
+    uvcStart(cameraWorker->camera);
+}
+
+
+
+static void captureImage(uvcCameraWorker_s *cameraWorker) {
     int result;
     //fputs("capturing Image...", stdout);
     fflush(stdout);
 
-    result = pthread_mutex_lock(&camera->frameMutex);
+    result = pthread_mutex_lock(&cameraWorker->frameMutex);
     assert(result == 0);
 
-    while (camera->numWaitingClients < camera->numClients) {
-        result = pthread_cond_wait(&camera->clientsWaitingCond, &camera->frameMutex);
+    while (cameraWorker->numWaitingClients < cameraWorker->numClients) {
+        result = pthread_cond_wait(&cameraWorker->clientsWaitingCond, &cameraWorker->frameMutex);
         assert(result == 0);
     }
 
-    if (s_toggleImage) {
-        camera->imageData = s_mapA.data;
-        camera->imageSize = s_mapA.len;
-    } else {
-        camera->imageData = s_mapB.data;
-        camera->imageSize = s_mapB.len;
-    }
+    uvcCaptureFrame(cameraWorker->camera, s_timeout);
+    uint8_t *rgb = yuyv2rgb(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
+    jpeg(&cameraWorker->imageData, &cameraWorker->imageSize, rgb, cameraWorker->camera->width, cameraWorker->camera->height, 25);
+    free(rgb);
 
-    s_toggleImage = !s_toggleImage;
-    usleep(200000);
-    //puts("done");
+    puts("done");
 
-    camera->numProcessingClients = camera->numWaitingClients;
-    camera->numWaitingClients = 0;
+    cameraWorker->numProcessingClients = cameraWorker->numWaitingClients;
+    cameraWorker->numWaitingClients = 0;
 
-    result = pthread_cond_broadcast(&camera->frameReadyCond);
+    result = pthread_cond_broadcast(&cameraWorker->frameReadyCond);
     assert(result == 0);
 
-    while (camera->numProcessingClients > 0) {
-        result = pthread_cond_wait(&camera->frameConsumingDoneCond, &camera->frameMutex);
+    while (cameraWorker->numProcessingClients > 0) {
+        result = pthread_cond_wait(&cameraWorker->frameConsumingDoneCond, &cameraWorker->frameMutex);
         assert(result == 0);
     }
 
-    result = pthread_mutex_unlock(&camera->frameMutex);
+    result = pthread_mutex_unlock(&cameraWorker->frameMutex);
     assert(result == 0);
 }
 
 
 
-static void stopCamera(uvcCamera_s *camera) {
+static void stopCamera(uvcCameraWorker_s *cameraWorker) {
     puts("stopCamera");
-    camera->isActive = false;
+    uvcStop(cameraWorker->camera);
+    cameraWorker->isActive = false;
 }
 
 
 
 static void * cameraThread(void *data) {
-    uvcCamera_s *camera = data;
+    uvcCameraWorker_s *cameraWorker = data;
     int result;
-    
-    initMapFile(&s_mapA, "a.jpg", MAP_RO);
-    initMapFile(&s_mapB, "b.jpg", MAP_RO);
-    assert(s_mapA.len > 0);
-    assert(s_mapB.len > 0);
-    printf("jpegDataSize: %zu\n", s_mapA.len);
-    printf("jpegDataSize: %zu\n", s_mapB.len);
 
-    result = pthread_cond_init(&camera->frameReadyCond, NULL);
+    result = pthread_cond_init(&cameraWorker->frameReadyCond, NULL);
     assert(result == 0);
 
-    result = pthread_cond_init(&camera->frameConsumingDoneCond, NULL);
+    result = pthread_cond_init(&cameraWorker->frameConsumingDoneCond, NULL);
     assert(result == 0);
 
-    result = pthread_cond_init(&camera->clientConnectedCond, NULL);
+    result = pthread_cond_init(&cameraWorker->clientConnectedCond, NULL);
     assert(result == 0);
 
-    result = pthread_cond_init(&camera->clientsWaitingCond, NULL);
+    result = pthread_cond_init(&cameraWorker->clientsWaitingCond, NULL);
     assert(result == 0);
 
-    result = pthread_mutex_init(&camera->frameMutex, NULL);
+    result = pthread_mutex_init(&cameraWorker->frameMutex, NULL);
     assert(result == 0);
 
-    while (camera->keepAlive) {
-        if ((camera->numClients > 0) && (!camera->isActive)) {
-            startCamera(camera);
-        } else if ((camera->numClients > 0) && (camera->isActive)) {
-            captureImage(camera);
-        } else if ((camera->numClients == 0) && (camera->isActive)) {
-            stopCamera(camera);
+    while (cameraWorker->keepAlive) {
+        if ((cameraWorker->numClients > 0) && (!cameraWorker->isActive)) {
+            startCamera(cameraWorker);
+        } else if ((cameraWorker->numClients > 0) && (cameraWorker->isActive)) {
+            captureImage(cameraWorker);
+        } else if ((cameraWorker->numClients == 0) && (cameraWorker->isActive)) {
+            stopCamera(cameraWorker);
         } else {
             fputs("waiting for client...", stdout);
             fflush(stdout);
-            result = pthread_mutex_lock(&camera->frameMutex);
+            result = pthread_mutex_lock(&cameraWorker->frameMutex);
             assert(result == 0);
 
-            while (camera->numClients == 0) {
-                result = pthread_cond_wait(&camera->clientConnectedCond, &camera->frameMutex);
+            while (cameraWorker->numClients == 0) {
+                result = pthread_cond_wait(&cameraWorker->clientConnectedCond, &cameraWorker->frameMutex);
                 assert(result == 0);
 
-                if (!camera->keepAlive) {
-                    result = pthread_mutex_unlock(&camera->frameMutex);
+                if (!cameraWorker->keepAlive) {
+                    result = pthread_mutex_unlock(&cameraWorker->frameMutex);
                     assert(result == 0);
                     goto exit;
                 }
             }
 
-            result = pthread_mutex_unlock(&camera->frameMutex);
+            result = pthread_mutex_unlock(&cameraWorker->frameMutex);
             assert(result == 0);
             puts(" connected.");
         }
@@ -158,23 +228,23 @@ static void * cameraThread(void *data) {
 
 exit:
 
-    result = pthread_mutex_destroy(&camera->frameMutex);
+    result = pthread_mutex_destroy(&cameraWorker->frameMutex);
     assert(result == 0);
 
-    result = pthread_cond_destroy(&camera->clientsWaitingCond);
+    result = pthread_cond_destroy(&cameraWorker->clientsWaitingCond);
     assert(result == 0);
 
-    result = pthread_cond_destroy(&camera->clientConnectedCond);
+    result = pthread_cond_destroy(&cameraWorker->clientConnectedCond);
     assert(result == 0);
 
-    result = pthread_cond_destroy(&camera->frameConsumingDoneCond);
+    result = pthread_cond_destroy(&cameraWorker->frameConsumingDoneCond);
     assert(result == 0);
 
-    result = pthread_cond_destroy(&camera->frameReadyCond);
+    result = pthread_cond_destroy(&cameraWorker->frameReadyCond);
     assert(result == 0);
 
-    if (camera->isActive) {
-        stopCamera(camera);
+    if (cameraWorker->isActive) {
+        stopCamera(cameraWorker);
     }
 
     return NULL;
@@ -183,121 +253,123 @@ exit:
 
 
 bool uvcDoesCameraExist(int device) {
-    uvcCamera_s *camera = &s_video[device];
-    return camera->thread;
+    uvcCameraWorker_s *cameraWorker = &s_video[device];
+    return cameraWorker->camera != NULL;
 }
 
 
 
 void uvcConnectClient(int device) {
-    uvcCamera_s *camera = &s_video[device];
+    uvcCameraWorker_s *cameraWorker = &s_video[device];
     int result;
-    result = pthread_mutex_lock(&camera->frameMutex);
+    result = pthread_mutex_lock(&cameraWorker->frameMutex);
     assert(result == 0);
 
-    camera->numClients++;
+    cameraWorker->numClients++;
 
-    if (camera->numClients == 1) {
-        result = pthread_cond_signal(&camera->clientConnectedCond);
+    if (cameraWorker->numClients == 1) {
+        result = pthread_cond_signal(&cameraWorker->clientConnectedCond);
         assert(result == 0);
     }
 
-    result = pthread_mutex_unlock(&camera->frameMutex);
+    result = pthread_mutex_unlock(&cameraWorker->frameMutex);
     assert(result == 0);
 }
 
 
 
 void uvcDisconnectClient(int device) {
-    uvcCamera_s *camera = &s_video[device];
+    uvcCameraWorker_s *cameraWorker = &s_video[device];
     int result;
-    result = pthread_mutex_lock(&camera->frameMutex);
+    result = pthread_mutex_lock(&cameraWorker->frameMutex);
     assert(result == 0);
 
-    camera->numClients--;
+    cameraWorker->numClients--;
 
-    if (camera->numWaitingClients >= camera->numClients) {
-        result = pthread_cond_signal(&camera->clientsWaitingCond);
+    if (cameraWorker->numWaitingClients >= cameraWorker->numClients) {
+        result = pthread_cond_signal(&cameraWorker->clientsWaitingCond);
         assert(result == 0);
     }
 
-    result = pthread_mutex_unlock(&camera->frameMutex);
+    result = pthread_mutex_unlock(&cameraWorker->frameMutex);
     assert(result == 0);
 }
 
 
 
 void uvcGetImage(int device, uint8_t **data, size_t *len) {
-    uvcCamera_s *camera = &s_video[device];
+    uvcCameraWorker_s *cameraWorker = &s_video[device];
     int result;
-    result = pthread_mutex_lock(&camera->frameMutex);
+    result = pthread_mutex_lock(&cameraWorker->frameMutex);
     assert(result == 0);
 
-    camera->numWaitingClients++;
+    cameraWorker->numWaitingClients++;
 
-    if (camera->numWaitingClients == camera->numClients) {
-        result = pthread_cond_signal(&camera->clientsWaitingCond);
+    if (cameraWorker->numWaitingClients == cameraWorker->numClients) {
+        result = pthread_cond_signal(&cameraWorker->clientsWaitingCond);
         assert(result == 0);
     }
 
-    result = pthread_cond_wait(&camera->frameReadyCond, &camera->frameMutex);
+    result = pthread_cond_wait(&cameraWorker->frameReadyCond, &cameraWorker->frameMutex);
     assert(result == 0);
 
     //puts("got Image");
-    *data = camera->imageData;
-    *len = camera->imageSize;
+    *data = cameraWorker->imageData;
+    *len = cameraWorker->imageSize;
 }
 
 
 
 void uvcGetImageDone(int device) {
-    uvcCamera_s *camera = &s_video[device];
+    uvcCameraWorker_s *cameraWorker = &s_video[device];
     int result;
-    camera->numProcessingClients--;
+    cameraWorker->numProcessingClients--;
 
-    if (camera->numProcessingClients == 0) {
-        result = pthread_cond_signal(&camera->frameConsumingDoneCond);
+    if (cameraWorker->numProcessingClients == 0) {
+        result = pthread_cond_signal(&cameraWorker->frameConsumingDoneCond);
         assert(result == 0);
     }
 
-    result = pthread_mutex_unlock(&camera->frameMutex);
+    result = pthread_mutex_unlock(&cameraWorker->frameMutex);
     assert(result == 0);
 }
 
 
 
-void uvcInit(int device) {
-    uvcCamera_s *camera = &s_video[device];
-    camera->imageData = NULL;
-    camera->imageSize = 0;
-    camera->fd = -1;
-    camera->numClients = 0;
-    camera->numWaitingClients = 0;
-    camera->numProcessingClients = 0;
-    camera->keepAlive = true;
-    camera->isActive = false;
+void uvcInitWorker(int device) {
+    uvcCameraWorker_s *cameraWorker = &s_video[device];
+    cameraWorker->imageData = NULL;
+    cameraWorker->imageSize = 0;
+    cameraWorker->numClients = 0;
+    cameraWorker->numWaitingClients = 0;
+    cameraWorker->numProcessingClients = 0;
+    cameraWorker->keepAlive = true;
+    cameraWorker->isActive = false;
+    cameraWorker->camera = NULL;
 
     int err;
     struct stat st;
     char path[12];
     sprintf(path, "/dev/video%d", device);
     err = stat(path, &st);
-    
-    if ((err == 0) || (device == 0)) {
-        err = pthread_create(&camera->thread , NULL, cameraThread, &s_video);
+
+    if (err == 0) {
+        cameraWorker->camera = uvcInit(path, 640, 480, V4L2_PIX_FMT_YUYV);
+        err = pthread_create(&cameraWorker->thread , NULL, cameraThread, &s_video);
         assert(err == 0);
     }
 }
 
 
 
-void uvcDeinit(int device) {
-    uvcCamera_s *camera = &s_video[device];
+void uvcDeinitWorker(int device) {
+    uvcCameraWorker_s *cameraWorker = &s_video[device];
 
-    if (camera->thread) {
-        camera->keepAlive = false;
-        int result = pthread_cond_signal(&camera->clientConnectedCond);
+    if (cameraWorker->thread) {
+        uvcDeinit(cameraWorker->camera);
+        cameraWorker->keepAlive = false;
+        int result = pthread_cond_signal(&cameraWorker->clientConnectedCond);
         assert(result == 0);
-        pthread_join(camera->thread, NULL);
+        pthread_join(cameraWorker->thread, NULL);
     }
 }
