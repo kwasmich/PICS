@@ -8,6 +8,7 @@
 
 #include "httpClient.h"
 
+#include <assert.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
@@ -190,8 +191,10 @@ void * httpClientThread(void *data) {
     char *query;
     char *httpVersion;
 
-    buffer = buf;
     numChars = getLine(client->socket, buf, sizeof buf);
+    assert(numChars > 0);
+
+    buffer = buf;
     method = strsep(&buffer, " ");
     path = strsep(&buffer, " ");
     httpVersion = strsep(&buffer, " ");
@@ -215,7 +218,7 @@ void * httpClientThread(void *data) {
         size_t filePathLen = strlen(filePath);
 
         if (filePath[filePathLen - 1] == '/') {
-            strlcat(filePath, "index.html", sizeof filePath);
+            strncat(filePath, "index.html", (sizeof filePath) - strlen(filePath) - 1);
         }
 
         struct stat st;
@@ -225,7 +228,7 @@ void * httpClientThread(void *data) {
             notFound(client->socket);
         } else {
             if ((st.st_mode & S_IFMT) == S_IFDIR) {
-                strlcat(filePath, "/index.html", sizeof filePath);
+                strncat(filePath, "/index.html", (sizeof filePath) - strlen(filePath) - 1);
             }
 
             serveFile(client->socket, filePath);
@@ -233,6 +236,7 @@ void * httpClientThread(void *data) {
     }
 
     shutdown(client->socket, SHUT_RDWR);
+    usleep(5000);
     close(client->socket);
     return NULL;
 }
