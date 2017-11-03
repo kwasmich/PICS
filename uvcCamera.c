@@ -91,7 +91,6 @@ static void jpeg(uint8_t **out_buffer, size_t *out_bufferSize, uint8_t* rgb, uin
     free(image);
 }
 
-
 static int minmax(int min, int v, int max) {
     return (v < min) ? min : (max < v) ? max : v;
 }
@@ -116,8 +115,25 @@ static uint8_t* yuyv2rgb(uint8_t* yuyv, uint32_t width, uint32_t height) {
     return rgb;
 }
 
-
-
+static uint8_t* uyvy2rgb(uint8_t* uyvy, uint32_t width, uint32_t height) {
+    uint8_t* rgb = calloc(width * height * 3, sizeof (uint8_t));
+    for (size_t i = 0; i < height; i++) {
+        for (size_t j = 0; j < width; j += 2) {
+            size_t index = i * width + j;
+            int u = uyvy[index * 2 + 0] - 128;
+            int y0 = uyvy[index * 2 + 1] << 8;
+            int v = uyvy[index * 2 + 2] - 128;
+            int y1 = uyvy[index * 2 + 3] << 8;
+            rgb[index * 3 + 0] = minmax(0, (y0 + 359 * v) >> 8, 255);
+            rgb[index * 3 + 1] = minmax(0, (y0 + 88 * v - 183 * u) >> 8, 255);
+            rgb[index * 3 + 2] = minmax(0, (y0 + 454 * u) >> 8, 255);
+            rgb[index * 3 + 3] = minmax(0, (y1 + 359 * v) >> 8, 255);
+            rgb[index * 3 + 4] = minmax(0, (y1 + 88 * v - 183 * u) >> 8, 255);
+            rgb[index * 3 + 5] = minmax(0, (y1 + 454 * u) >> 8, 255);
+        }
+    }
+    return rgb;
+}
 
 
 
@@ -146,7 +162,16 @@ static void captureImage(uvcCameraWorker_s *cameraWorker) {
     }
 
     uvcCaptureFrame(cameraWorker->camera, s_timeout);
-    uint8_t *rgb = yuyv2rgb(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
+    uint8_t *rgb;
+
+    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_YUYV) {
+        rgb = yuyv2rgb(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
+    }
+
+    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_UYVY) {
+        rgb = uyvy2rgb(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
+    }
+
     jpeg(&cameraWorker->imageData, &cameraWorker->imageSize, rgb, cameraWorker->camera->width, cameraWorker->camera->height, 25);
     free(rgb);
 

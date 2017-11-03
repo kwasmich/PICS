@@ -25,7 +25,8 @@ typedef struct {
     int fd;
     uint32_t width;
     uint32_t height;
-    ssize_t buffer_count;
+    uint32_t pixelFormat;
+    ssize_t bufferCount;
     uint32_t bufferSize;
     buffer_s *buffers;
     buffer_s *head;

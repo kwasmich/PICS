@@ -213,7 +213,7 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     camera->fd = fd;
     camera->width = 0;
     camera->height = 0;
-    camera->buffer_count = 0;
+    camera->bufferCount = 0;
     camera->buffers = NULL;
     camera->head = NULL;
 
@@ -254,6 +254,7 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     camera->width = format.fmt.pix.width;
     camera->height = format.fmt.pix.height;
     camera->bufferSize = format.fmt.pix.sizeimage;
+    camera->pixelFormat = format.fmt.pix.pixelformat;
 
 
     // allocate buffers
@@ -265,13 +266,13 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     result = xioctl(camera->fd, VIDIOC_REQBUFS, &req);
     uvcAssert(result != -1, "VIDIOC_REQBUFS");
 
-    camera->buffer_count = req.count;
+    camera->bufferCount = req.count;
     camera->buffers = calloc(req.count, sizeof(buffer_s));
     uvcAssert(camera->buffers, "allocating buffers");
 
-    printf("%dx%d (%d x %d bytes)\n", camera->width, camera->height, camera->buffer_count, camera->bufferSize);
+    printf("%dx%d (%d x %d bytes)\n", camera->width, camera->height, camera->bufferCount, camera->bufferSize);
 
-    for (int i = 0; i < camera->buffer_count; i++) {
+    for (int i = 0; i < camera->bufferCount; i++) {
         camera->buffers[i].length = camera->bufferSize;
         camera->buffers[i].start = malloc(camera->bufferSize);
         uvcAssert(camera->buffers[i].start, "allocating buffers");
@@ -283,14 +284,14 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
 
 
 void uvcDeinit(uvcCamera_s *camera) {
-    for (int i = 0; i < camera->buffer_count; i++) {
+    for (int i = 0; i < camera->bufferCount; i++) {
         free(camera->buffers[i].start);
         camera->buffers[i].start = NULL;
         camera->buffers[i].length = 0;
     }
 
     free(camera->buffers);
-    camera->buffer_count = 0;
+    camera->bufferCount = 0;
     camera->buffers = NULL;
     camera->head = NULL;
 
@@ -304,7 +305,7 @@ void uvcDeinit(uvcCamera_s *camera) {
 void uvcStart(uvcCamera_s *camera) {
     int result;
 
-    for (int i = 0; i < camera->buffer_count; i++) {
+    for (int i = 0; i < camera->bufferCount; i++) {
         struct v4l2_buffer buf;
         memset(&buf, 0, sizeof buf);
         buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
