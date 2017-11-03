@@ -380,7 +380,7 @@ void uvcInitWorker(int device) {
 
     if (err == 0) {
         cameraWorker->camera = uvcInit(path, 640, 480, V4L2_PIX_FMT_YUYV);
-        err = pthread_create(&cameraWorker->thread , NULL, cameraThread, &s_video);
+        err = pthread_create(&cameraWorker->thread , NULL, cameraThread, &s_video[device]);
         assert(err == 0);
     }
 }
