@@ -24,7 +24,7 @@ fprintf(stderr, "[%s:%d (%s)] %s %d: %s\n", __FILE__, __LINE__, __func__, "" mes
 exit(EXIT_FAILURE); \
 }
 
-
+#define NUM_BUFFERS 2
 
 
 
@@ -260,7 +260,7 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     // allocate buffers
     struct v4l2_requestbuffers req;
     memset(&req, 0, sizeof req);
-    req.count = 4;
+    req.count = NUM_BUFFERS;
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     req.memory = V4L2_MEMORY_USERPTR;
     result = xioctl(camera->fd, VIDIOC_REQBUFS, &req);
@@ -347,17 +347,18 @@ static bool captureFrame(uvcCamera_s *camera) {
     result = xioctl(camera->fd, VIDIOC_DQBUF, &buf);
 
     if (result == -1) {
-        return 0;
+        if (errno == EAGAIN) {
+            return false;
+        }
+
+        uvcAssert(result != -1, "VIDIOC_DQBUF");
     }
 
     printf("%d (%d bytes)", buf.index, buf.bytesused);
     printf("%p %p\n", buf.m.userptr, camera->buffers[buf.index].start);
-    camera->head = &camera->buffers[buf.index];
+    camera->head = &camera->buffers[(buf.index + NUM_BUFFERS - 1) % NUM_BUFFERS];
     result = xioctl(camera->fd, VIDIOC_QBUF, &buf);
-
-    if (result == -1) {
-        return false;
-    }
+    uvcAssert(result != -1, "VIDIOC_QBUF");
 
     return true;
 }
