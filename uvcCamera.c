@@ -17,6 +17,8 @@
 #include <linux/videodev2.h>
 
 #include "uvcCapture.h"
+#include "omxJPEGEnc.h"
+#include "omxHelper.h"
 
 
 
@@ -29,8 +31,11 @@ typedef struct {
     pthread_t thread;
 
     uvcCamera_s *camera;
+    OMXContext_s *omx;
+
     uint8_t *imageData;
     size_t imageSize;
+    size_t imageFill;
     int numClients;
     int numWaitingClients;
     int numProcessingClients;
@@ -162,19 +167,23 @@ static void captureImage(uvcCameraWorker_s *cameraWorker) {
     }
 
     uvcCaptureFrame(cameraWorker->camera, s_timeout);
-    uint8_t *rgb;
 
-    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_YUYV) {
-        rgb = yuyv2rgb(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
-    }
+    omxJPEGEncProcess(cameraWorker->omx, cameraWorker->imageData, &cameraWorker->imageFill, cameraWorker->imageSize, cameraWorker->camera->head->start, cameraWorker->camera->head->length);
 
-    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_UYVY) {
-        rgb = uyvy2rgb(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
-    }
+//    uint8_t *rgb;
+//
+//    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_YUYV) {
+//        rgb = yuyv2rgb(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
+//    }
+//
+//    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_UYVY) {
+//        rgb = uyvy2rgb(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
+//    }
+//
+//    jpeg(&cameraWorker->imageData, &cameraWorker->imageFill, rgb, cameraWorker->camera->width, cameraWorker->camera->height, 25);
+//    free(rgb);
 
-    jpeg(&cameraWorker->imageData, &cameraWorker->imageSize, rgb, cameraWorker->camera->width, cameraWorker->camera->height, 25);
-    free(rgb);
-
+    printf("%zu\n", cameraWorker->imageFill);
     puts("done");
 
     cameraWorker->numProcessingClients = cameraWorker->numWaitingClients;
@@ -205,6 +214,7 @@ static void stopCamera(uvcCameraWorker_s *cameraWorker) {
 static void * cameraThread(void *data) {
     uvcCameraWorker_s *cameraWorker = data;
     int result;
+    cameraWorker->omx = omxJPEGEncInit(cameraWorker->camera->width, cameraWorker->camera->height, cameraWorker->camera->height, 25, OMX_COLOR_FormatYCbYCr);
 
     result = pthread_cond_init(&cameraWorker->frameReadyCond, NULL);
     assert(result == 0);
@@ -272,6 +282,7 @@ exit:
         stopCamera(cameraWorker);
     }
 
+    omxJPEGEncDeinit(cameraWorker->omx);
     return NULL;
 }
 
@@ -340,7 +351,7 @@ void uvcGetImage(int device, uint8_t **data, size_t *len) {
 
     //puts("got Image");
     *data = cameraWorker->imageData;
-    *len = cameraWorker->imageSize;
+    *len = cameraWorker->imageFill;
 }
 
 
@@ -365,6 +376,7 @@ void uvcInitWorker(int device) {
     uvcCameraWorker_s *cameraWorker = &s_video[device];
     cameraWorker->imageData = NULL;
     cameraWorker->imageSize = 0;
+    cameraWorker->imageFill = 0;
     cameraWorker->numClients = 0;
     cameraWorker->numWaitingClients = 0;
     cameraWorker->numProcessingClients = 0;
@@ -380,6 +392,8 @@ void uvcInitWorker(int device) {
 
     if (err == 0) {
         cameraWorker->camera = uvcInit(path, 640, 480, V4L2_PIX_FMT_YUYV);
+        cameraWorker->imageSize = cameraWorker->camera->width * cameraWorker->camera->height * sizeof(uint8_t);
+        cameraWorker->imageData = malloc(cameraWorker->imageSize);
         err = pthread_create(&cameraWorker->thread , NULL, cameraThread, &s_video[device]);
         assert(err == 0);
     }
@@ -393,6 +407,9 @@ void uvcDeinitWorker(int device) {
     if (cameraWorker->thread) {
         uvcDeinit(cameraWorker->camera);
         cameraWorker->keepAlive = false;
+        cameraWorker->imageSize = 0;
+        cameraWorker->imageFill = 0;
+        free(cameraWorker->imageData);
         int result = pthread_cond_signal(&cameraWorker->clientConnectedCond);
         assert(result == 0);
         pthread_join(cameraWorker->thread, NULL);

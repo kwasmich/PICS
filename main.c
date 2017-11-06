@@ -24,8 +24,12 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <bcm_host.h>
+#define OMX_SKIP64BIT
+#include <IL/OMX_Core.h>
 
 #include "httpClient.h"
+#include "omxHelper.h"
 #include "uvcCamera.h"
 
 
@@ -99,6 +103,9 @@ static void destroy() {
     }
 
     close(s_server_sock);
+
+    OMX_Deinit();
+    bcm_host_deinit();
 }
 
 
@@ -114,6 +121,12 @@ int main(void) {
     atexit(destroy);
     signal(SIGINT, terminated);
     signal(SIGPIPE, SIG_IGN); // ignore broken pipe
+
+    OMX_ERRORTYPE omxErr = OMX_ErrorNone;
+
+    bcm_host_init();
+    omxErr = OMX_Init();
+    omxAssert(omxErr);
 
     in_port_t port = 10000;
     struct sockaddr_in client_name;
