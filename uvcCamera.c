@@ -142,6 +142,35 @@ static uint8_t* uyvy2rgb(uint8_t* uyvy, uint32_t width, uint32_t height) {
 
 
 
+static void convert_422_to_420(uint8_t *yuv, uint32_t width, uint32_t const height, size_t offset) {
+    uint8_t *src = yuv + offset;
+    uint8_t *dst = yuv + offset;
+
+    for (int y = 0; y < height / 2; y++) {
+        for (int x = 0; x < width; x++) {
+            *dst = *src;
+            dst += 2;
+            src += 2;
+        }
+
+        src += width * 2;
+    }
+}
+
+
+
+static void yuyv422_to_yuyv420(uint8_t *yuv, uint32_t width, uint32_t const height) {
+    convert_422_to_420(yuv, width, height, 1);
+}
+
+
+
+static void uyvy422_to_uyvy420(uint8_t *yuv, uint32_t width, uint32_t const height) {
+    convert_422_to_420(yuv, width, height, 0);
+}
+
+
+
 
 
 
@@ -167,6 +196,14 @@ static void captureImage(uvcCameraWorker_s *cameraWorker) {
     }
 
     uvcCaptureFrame(cameraWorker->camera, s_timeout);
+
+    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_YUYV) {
+        yuyv422_to_yuyv420(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
+    }
+
+    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_UYVY) {
+        uyvy422_to_uyvy420(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
+    }
 
     omxJPEGEncProcess(cameraWorker->omx, cameraWorker->imageData, &cameraWorker->imageFill, cameraWorker->imageSize, cameraWorker->camera->head->start, cameraWorker->camera->head->length);
 
@@ -214,7 +251,7 @@ static void stopCamera(uvcCameraWorker_s *cameraWorker) {
 static void * cameraThread(void *data) {
     uvcCameraWorker_s *cameraWorker = data;
     int result;
-    cameraWorker->omx = omxJPEGEncInit(cameraWorker->camera->width, cameraWorker->camera->height, cameraWorker->camera->height, 25, OMX_COLOR_FormatYCbYCr);
+    cameraWorker->omx = omxJPEGEncInit(cameraWorker->camera->width, cameraWorker->camera->height, cameraWorker->camera->height, 15, OMX_COLOR_FormatYCbYCr);
 
     result = pthread_cond_init(&cameraWorker->frameReadyCond, NULL);
     assert(result == 0);

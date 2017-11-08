@@ -150,7 +150,7 @@ static void stream(httpClient_s *client, int device) {
     uint8_t *imageData = NULL;
     size_t imageSize = 0;
 
-    int cnt = 100;
+    int cnt = 1000;
 
     while (client->keepAlive && cnt) {
         uvcGetImage(device, &imageData, &imageSize);
