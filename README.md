@@ -1,5 +1,8 @@
 # PICS #
-Pi Improved Camera Streaming is a super lightweight hardware accelerated MJPEG Streaming Server for the Raspberry Pi.
+
+*P*i *I*mproved *C*amera *S*treaming is a super lightweight hardware accelerated MJPEG Streaming Server for the Raspberry Pi.
+
+
 
 
 ## This Streaming Server combines the following: ##
@@ -7,7 +10,39 @@ Pi Improved Camera Streaming is a super lightweight hardware accelerated MJPEG S
 * The output is a simple multipart MJPEG Stream that every web client supports.
 * Lightweight HTTP server based on [tinyhttpd](https://sourceforge.net/projects/tinyhttpd/) from J. David.
 * Camera capture with V4L2 to allow all UVC cameras to be used along with the official Raspberry Pi Camera.
+* Support for multiple cameras and streams simultaneously.
 * Using hardware accelerated JPEG compression with OpenMAX.
+
+
+
+
+## Usage ##
+
+Build and run PICS by issuing:
+
+`make`
+`./PICS`
+
+On startup it detects all video devices in `/dev/video*` (currently limited from 0 to 9).
+PICS also provides a simple file server for static files that can be placed within the `htdocs` folder.
+The content of the folder provides the content of the http server root.
+To access a camera stream open the URL
+
+    http://localhost:10000/dev/video0
+
+where video0 can be replaced with video1 through video9 if present.
+
+
+
+
+## To Do ##
+
+Currently many things are hardcoded like the TCP port and the frame size. This will change in the future.
+
+* Setting the frame rate.
+* Stream does not work on Medion Smart TV.
+* Compiling with and without OpenMAX.
+
 
 
 
@@ -48,6 +83,6 @@ image while the lower half does not carry chroma information. Thus wasting memor
     Ym0 ???  Ym1 ???  Ym2 ???  Ym3 ??? …
     Yn0 ???  Yn1 ???  Yn2 ???  Yn3 ??? …
 
-To be still able to use OpenMAX I had to write a method to "compress" the luma vertically. This intoduces a higher
-than intended CPU usage. Instead of ~11% CPU PICS consumes ~23% CPU while streaming and 0% while noone is watching.
+To be still able to use OpenMAX I had to write a method to "compress" the chroma vertically. This intoduces a higher
+than intended CPU usage. Instead of ~11% CPU PICS consumes ~16% CPU while streaming and 0% while noone is watching.
 This is still much lower than rougnly 90-100% CPU usage from other MJPEG streaming software.

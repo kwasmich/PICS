@@ -257,6 +257,22 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     camera->pixelFormat = format.fmt.pix.pixelformat;
 
 
+    // attempt to set FPS
+    struct v4l2_streamparm streamparam;
+    memset(&streamparam, 0, sizeof streamparam);
+    streamparam.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    result = xioctl(camera->fd, VIDIOC_G_PARM, &streamparam);
+    uvcAssert(result != -1, "VIDIOC_G_PARM");
+    uvcAssert(streamparam.parm.capture.capability & V4L2_CAP_TIMEPERFRAME, "No FPS control");
+    streamparam.parm.capture.timeperframe.numerator = 1;
+    streamparam.parm.capture.timeperframe.denominator = 5;
+    result = xioctl(camera->fd, VIDIOC_S_PARM, &streamparam);
+    uvcAssert(result != -1, "VIDIOC_S_PARM");
+    result = xioctl(camera->fd, VIDIOC_G_PARM, &streamparam);
+    uvcAssert(result != -1, "VIDIOC_G_PARM");
+    printf("FPS: %d\n", streamparam.parm.capture.timeperframe.denominator);
+
+
     // allocate buffers
     struct v4l2_requestbuffers req;
     memset(&req, 0, sizeof req);

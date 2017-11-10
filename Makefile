@@ -1,7 +1,7 @@
 #CCC_CC=clang
 #CC=clang
 LIBS=
-CFLAGS=-g -std=gnu11 -Wall -Wextra -pedantic -Wno-gnu -Wno-variadic-macros -O0
+CFLAGS=-g -std=gnu11 -Wall -Wextra -pedantic -Wno-gnu -Wno-variadic-macros -O3
 #--analyze
 #-fsanitize=address -fno-omit-frame-pointer -funwind-tables -rdynamic
 CFLAGS+=-I.

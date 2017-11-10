@@ -48,6 +48,9 @@ static uvcCameraWorker_s s_video[10];
 
 struct timeval s_timeout = { .tv_sec = 2, .tv_usec = 0 };
 
+static pthread_mutex_t s_omxMutex = PTHREAD_MUTEX_INITIALIZER;
+
+
 
 // https://gist.github.com/bellbind/6813905
 #include <jpeglib.h>
@@ -142,7 +145,7 @@ static uint8_t* uyvy2rgb(uint8_t* uyvy, uint32_t width, uint32_t height) {
 
 
 
-static void convert_422_to_420(uint8_t *yuv, uint32_t width, uint32_t const height, size_t offset) {
+static void convert_422_to_420(uint8_t *yuv, uint32_t const width, uint32_t const height, size_t const offset) {
     uint8_t *src = yuv + offset;
     uint8_t *dst = yuv + offset;
 
@@ -205,7 +208,15 @@ static void captureImage(uvcCameraWorker_s *cameraWorker) {
         uyvy422_to_uyvy420(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
     }
 
+
+    result = pthread_mutex_lock(&s_omxMutex);
+    assert(result == 0);
+
     omxJPEGEncProcess(cameraWorker->omx, cameraWorker->imageData, &cameraWorker->imageFill, cameraWorker->imageSize, cameraWorker->camera->head->start, cameraWorker->camera->head->length);
+
+    result = pthread_mutex_unlock(&s_omxMutex);
+    assert(result == 0);
+
 
 //    uint8_t *rgb;
 //
@@ -251,7 +262,14 @@ static void stopCamera(uvcCameraWorker_s *cameraWorker) {
 static void * cameraThread(void *data) {
     uvcCameraWorker_s *cameraWorker = data;
     int result;
-    cameraWorker->omx = omxJPEGEncInit(cameraWorker->camera->width, cameraWorker->camera->height, cameraWorker->camera->height, 15, OMX_COLOR_FormatYCbYCr);
+
+    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_YUYV) {
+        cameraWorker->omx = omxJPEGEncInit(cameraWorker->camera->width, cameraWorker->camera->height, cameraWorker->camera->height, 7, OMX_COLOR_FormatYCbYCr);
+    }
+
+    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_UYVY) {
+        cameraWorker->omx = omxJPEGEncInit(cameraWorker->camera->width, cameraWorker->camera->height, cameraWorker->camera->height, 7, OMX_COLOR_FormatCbYCrY);
+    }
 
     result = pthread_cond_init(&cameraWorker->frameReadyCond, NULL);
     assert(result == 0);
