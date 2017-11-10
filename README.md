@@ -1,6 +1,6 @@
 # PICS #
 
-*P*i *I*mproved *C*amera *S*treaming is a super lightweight hardware accelerated MJPEG Streaming Server for the Raspberry Pi.
+**P**i **I**mproved **C**amera **S**treaming is a super lightweight hardware accelerated MJPEG Streaming Server for the Raspberry Pi.
 
 
 
@@ -20,8 +20,11 @@
 
 Build and run PICS by issuing:
 
-`make`
-`./PICS`
+``` bash
+sudo apt install libjpeg9-dev
+make
+./PICS
+``` `
 
 On startup it detects all video devices in `/dev/video*` (currently limited from 0 to 9).
 PICS also provides a simple file server for static files that can be placed within the `htdocs` folder.
