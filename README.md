@@ -24,7 +24,8 @@ Build and run PICS by issuing:
 sudo apt install libjpeg9-dev
 make
 ./PICS
-``` `
+```
+`
 
 On startup it detects all video devices in `/dev/video*` (currently limited from 0 to 9).
 PICS also provides a simple file server for static files that can be placed within the `htdocs` folder.
