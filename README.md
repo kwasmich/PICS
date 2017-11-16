@@ -39,6 +39,24 @@ where video0 can be replaced with video1 through video9 if present.
 
 
 
+### Using the official Raspberry Pi Camera ###
+
+In order to use the RasPiCam (any version) you will need to load the V4L2 kernel module by either adding it to
+`/etc/modules`:
+
+    bcm2835_v4l2
+
+This way it will be loaded and available right afer each reboot. Or by loading it on demand with:
+
+    sudo modprobe bcm2835-v4l2
+
+Then you will have to set the desired frame size and pixel format:
+
+    v4l2-ctl --set-fmt-video=width=640,height=480,pixelformat=0
+
+
+
+
 ## To Do ##
 
 Currently many things are hardcoded like the TCP port and the frame size. This will change in the future.
