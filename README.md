@@ -46,6 +46,7 @@ Currently many things are hardcoded like the TCP port and the frame size. This w
 * Setting the frame rate.
 * Stream does not work on Medion Smart TV.
 * Compiling with and without OpenMAX.
+    `make NO_OMX=1`
 
 
 

@@ -1,20 +1,3 @@
-// https://sourceforge.net/projects/tinyhttpd/
-
-/* J. David's webserver */
-/* This is a simple webserver.
- * Created November 1999 by J. David Blackstone.
- * CSE 4344 (Network concepts), Prof. Zeigler
- * University of Texas at Arlington
- */
-/* This program compiles for Sparc Solaris 2.6.
- * To compile for Linux:
- *  1) Comment out the #include <pthread.h> line.
- *  2) Comment out the line that defines the variable newthread.
- *  3) Comment out the two lines that run pthread_create().
- *  4) Uncomment the line that runs accept_request().
- *  5) Remove -lsocket from the Makefile.
- */
-
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <signal.h>
@@ -24,12 +7,15 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include <bcm_host.h>
-#define OMX_SKIP64BIT
-#include <IL/OMX_Core.h>
+#ifndef NO_OMX
+#   include <bcm_host.h>
+#   define OMX_SKIP64BIT
+#   include <IL/OMX_Core.h>
+#
+#   include "omxHelper.h"
+#endif
 
 #include "httpClient.h"
-#include "omxHelper.h"
 #include "uvcCamera.h"
 
 
@@ -104,8 +90,10 @@ static void destroy() {
 
     close(s_server_sock);
 
+#ifndef NO_OMX
     OMX_Deinit();
     bcm_host_deinit();
+#endif
 }
 
 
@@ -122,11 +110,13 @@ int main(void) {
     signal(SIGINT, terminated);
     signal(SIGPIPE, SIG_IGN); // ignore broken pipe
 
+#ifndef NO_OMX
     OMX_ERRORTYPE omxErr = OMX_ErrorNone;
 
     bcm_host_init();
     omxErr = OMX_Init();
     omxAssert(omxErr);
+#endif
 
     in_port_t port = 10000;
     struct sockaddr_in client_name;

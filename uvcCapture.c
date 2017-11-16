@@ -16,6 +16,7 @@
 
 #include <linux/videodev2.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 
 
 #define uvcAssert(cond, message) \
@@ -24,7 +25,13 @@ fprintf(stderr, "[%s:%d (%s)] %s %d: %s\n", __FILE__, __LINE__, __func__, "" mes
 exit(EXIT_FAILURE); \
 }
 
-#define NUM_BUFFERS 2
+#define NUM_BUFFERS 4
+
+
+
+enum v4l2_memory_extension {
+    V4L2_MEMORY_READ             = 0
+};
 
 
 
@@ -40,8 +47,10 @@ static int xioctl(int fd, int request, void *arg) {
 
 
 
+void uvcListPixelFormats(const char *device) {
+    int fd = open(device, O_RDWR | O_NONBLOCK, 0);
+    uvcAssert(fd != -1, "open");
 
-static void uvcListPixelFormats(uvcCamera_s *camera) {
     static const uint32_t pix_formats[] = {
         V4L2_PIX_FMT_ABGR32,
         V4L2_PIX_FMT_ARGB32,
@@ -178,7 +187,7 @@ static void uvcListPixelFormats(uvcCamera_s *camera) {
     for (int i = 0; i < count; i++) {
         memset(&format, 0, sizeof format);
         format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        result = xioctl(camera->fd, VIDIOC_G_FMT, &format);
+        result = xioctl(fd, VIDIOC_G_FMT, &format);
         uvcAssert(result != -1, "VIDIOC_G_FMT");
         format.fmt.pix.pixelformat = pix_formats[i];
 
@@ -191,9 +200,9 @@ static void uvcListPixelFormats(uvcCamera_s *camera) {
         x.u32 = pix_formats[i];
 
         printf("%c%c%c%c : ", x.u8[0], x.u8[1], x.u8[2], x.u8[3]);
-        result = xioctl(camera->fd, VIDIOC_S_FMT, &format);
+        result = xioctl(fd, VIDIOC_S_FMT, &format);
         uvcAssert(result != -1, "VIDIOC_S_FMT");
-        result = xioctl(camera->fd, VIDIOC_G_FMT, &format);
+        result = xioctl(fd, VIDIOC_G_FMT, &format);
         uvcAssert(result != -1, "VIDIOC_G_FMT");
 
         if (format.fmt.pix.pixelformat == pix_formats[i]) {
@@ -202,6 +211,9 @@ static void uvcListPixelFormats(uvcCamera_s *camera) {
             printf("%03d -\n", i);
         }
     }
+
+    int err = close(fd);
+    uvcAssert(err != -1, "close");
 }
 
 
@@ -229,14 +241,15 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     memset(&cropcap, 0, sizeof cropcap);
     cropcap.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     result = xioctl(camera->fd, VIDIOC_CROPCAP, &cropcap);
-    uvcAssert(result != -1, "VIDIOC_CROPCAP");
 
-    struct v4l2_crop crop;
-    memset(&crop, 0, sizeof crop);
-    crop.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    crop.c = cropcap.defrect;
-    result = xioctl(camera->fd, VIDIOC_S_CROP, &crop);
-    //uvcAssert(result != -1 || errno == EINVAL, "VIDIOC_S_CROP"); // fire and forget as some do not support this
+    if (result == 0) {
+        struct v4l2_crop crop;
+        memset(&crop, 0, sizeof crop);
+        crop.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        crop.c = cropcap.defrect;
+        result = xioctl(camera->fd, VIDIOC_S_CROP, &crop);
+        //uvcAssert(result != -1 || errno == EINVAL, "VIDIOC_S_CROP"); // fire and forget as some do not support this
+    }
 
 
     // attempt to set frame size and pixelformat
@@ -263,13 +276,16 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     streamparam.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     result = xioctl(camera->fd, VIDIOC_G_PARM, &streamparam);
     uvcAssert(result != -1, "VIDIOC_G_PARM");
-    uvcAssert(streamparam.parm.capture.capability & V4L2_CAP_TIMEPERFRAME, "No FPS control");
-    streamparam.parm.capture.timeperframe.numerator = 1;
-    streamparam.parm.capture.timeperframe.denominator = 5;
-    result = xioctl(camera->fd, VIDIOC_S_PARM, &streamparam);
-    uvcAssert(result != -1, "VIDIOC_S_PARM");
-    result = xioctl(camera->fd, VIDIOC_G_PARM, &streamparam);
-    uvcAssert(result != -1, "VIDIOC_G_PARM");
+
+    if (streamparam.parm.capture.capability & V4L2_CAP_TIMEPERFRAME) {
+        streamparam.parm.capture.timeperframe.numerator = 1;
+        streamparam.parm.capture.timeperframe.denominator = 5;
+        result = xioctl(camera->fd, VIDIOC_S_PARM, &streamparam);
+        uvcAssert(result != -1, "VIDIOC_S_PARM");
+        result = xioctl(camera->fd, VIDIOC_G_PARM, &streamparam);
+        uvcAssert(result != -1, "VIDIOC_G_PARM");
+    }
+
     printf("FPS: %d\n", streamparam.parm.capture.timeperframe.denominator);
 
 
@@ -280,30 +296,85 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     req.memory = V4L2_MEMORY_USERPTR;
     result = xioctl(camera->fd, VIDIOC_REQBUFS, &req);
-    uvcAssert(result != -1, "VIDIOC_REQBUFS");
 
-    camera->bufferCount = req.count;
-    camera->buffers = calloc(req.count, sizeof(buffer_s));
-    uvcAssert(camera->buffers, "allocating buffers");
+    if (result == 0) {
+        camera->io = V4L2_MEMORY_USERPTR;
+        camera->bufferCount = req.count;
+        camera->buffers = calloc(req.count, sizeof(buffer_s));
+        uvcAssert(camera->buffers, "allocating buffers");
 
-    printf("%dx%d (%d x %d bytes)\n", camera->width, camera->height, camera->bufferCount, camera->bufferSize);
+        printf("%dx%d (%d x %d bytes)\n", camera->width, camera->height, camera->bufferCount, camera->bufferSize);
 
-    for (int i = 0; i < camera->bufferCount; i++) {
-        camera->buffers[i].length = camera->bufferSize;
-        camera->buffers[i].start = malloc(camera->bufferSize);
-        uvcAssert(camera->buffers[i].start, "allocating buffers");
+        for (int i = 0; i < camera->bufferCount; i++) {
+            camera->buffers[i].length = camera->bufferSize;
+            camera->buffers[i].start = malloc(camera->bufferSize);
+            uvcAssert(camera->buffers[i].start, "allocating buffers");
+        }
+
+        puts("Using USERPTR");
+        return camera;
     }
 
-    return camera;
+
+    // attempt to use mmap instead of user_ptr
+    memset(&req, 0, sizeof req);
+    req.count = NUM_BUFFERS;
+    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    req.memory = V4L2_MEMORY_MMAP;
+    result = xioctl(camera->fd, VIDIOC_REQBUFS, &req);
+
+    if (result == 0) {
+        uvcAssert(req.count >= 2, "insufficient memory on device");
+        camera->io = V4L2_MEMORY_MMAP;
+        camera->bufferCount = req.count;
+        camera->buffers = calloc(req.count, sizeof(buffer_s));
+        uvcAssert(camera->buffers, "allocating buffers");
+
+        printf("%dx%d (%d x %d bytes)\n", camera->width, camera->height, camera->bufferCount, camera->bufferSize);
+
+        for (int i = 0; i < req.count; i++) {
+            struct v4l2_buffer buf;
+            memset(&buf, 0, sizeof buf);
+            buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            buf.memory = V4L2_MEMORY_MMAP;
+            buf.index = i;
+            result = xioctl(fd, VIDIOC_QUERYBUF, &buf);
+            uvcAssert(result != -1, "VIDIOC_QUERYBUF");
+            camera->buffers[i].length = buf.length;
+            camera->buffers[i].start = mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, buf.m.offset);
+            uvcAssert(camera->buffers[i].start != MAP_FAILED, "mmap");
+        }
+
+        puts("Using MMAP");
+        return camera;
+    }
+
+    uvcAssert(result != -1, "VIDIOC_REQBUFS");
 }
 
 
 
 void uvcDeinit(uvcCamera_s *camera) {
-    for (int i = 0; i < camera->bufferCount; i++) {
-        free(camera->buffers[i].start);
-        camera->buffers[i].start = NULL;
-        camera->buffers[i].length = 0;
+    switch (camera->io) {
+        case V4L2_MEMORY_MMAP:
+            for (int i = 0; i < camera->bufferCount; i++) {
+                int result = munmap(camera->buffers[i].start, camera->buffers[i].length);
+                uvcAssert(result != -1, "munmap");
+                camera->buffers[i].start = NULL;
+                camera->buffers[i].length = 0;
+            }
+
+            break;
+
+        case V4L2_MEMORY_READ:
+        case V4L2_MEMORY_USERPTR:
+            for (int i = 0; i < camera->bufferCount; i++) {
+                free(camera->buffers[i].start);
+                camera->buffers[i].start = NULL;
+                camera->buffers[i].length = 0;
+            }
+
+            break;
     }
 
     free(camera->buffers);
@@ -320,22 +391,36 @@ void uvcDeinit(uvcCamera_s *camera) {
 
 void uvcStart(uvcCamera_s *camera) {
     int result;
+    enum v4l2_buf_type type;
 
-    for (int i = 0; i < camera->bufferCount; i++) {
-        struct v4l2_buffer buf;
-        memset(&buf, 0, sizeof buf);
-        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        buf.memory = V4L2_MEMORY_USERPTR;
-        buf.index = i;
-        buf.m.userptr = (unsigned long)camera->buffers[i].start;
-        buf.length = camera->buffers[i].length;
-        result = xioctl(camera->fd, VIDIOC_QBUF, &buf);
-        uvcAssert(result != -1, "VIDIOC_QBUF");
+    switch (camera->io) {
+        case V4L2_MEMORY_READ:
+            // do nothing
+            break;
+
+        case V4L2_MEMORY_MMAP:
+        case V4L2_MEMORY_USERPTR:
+            for (int i = 0; i < camera->bufferCount; i++) {
+                struct v4l2_buffer buf;
+                memset(&buf, 0, sizeof buf);
+                buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+                buf.memory = camera->io;
+                buf.index = i;
+
+                if (camera->io == V4L2_MEMORY_USERPTR) {
+                    buf.m.userptr = (unsigned long)camera->buffers[i].start;
+                    buf.length = camera->buffers[i].length;
+                }
+
+                result = xioctl(camera->fd, VIDIOC_QBUF, &buf);
+                uvcAssert(result != -1, "VIDIOC_QBUF");
+            }
+
+            type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            result = xioctl(camera->fd, VIDIOC_STREAMON, &type);
+            uvcAssert(result != -1, "VIDIOC_STREAMON");
+            break;
     }
-
-    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    result = xioctl(camera->fd, VIDIOC_STREAMON, &type);
-    uvcAssert(result != -1, "VIDIOC_STREAMON");
 }
 
 
@@ -347,9 +432,21 @@ static void uvcMainloop() {
 
 
 void uvcStop(uvcCamera_s *camera) {
-    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    int result = xioctl(camera->fd, VIDIOC_STREAMOFF, &type);
-    uvcAssert(result != -1, "VIDIOC_STREAMOFF");
+    int result;
+    enum v4l2_buf_type type;
+
+    switch (camera->io) {
+        case V4L2_MEMORY_READ:
+            // do nothing
+            break;
+
+        case V4L2_MEMORY_MMAP:
+        case V4L2_MEMORY_USERPTR:
+            type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            result = xioctl(camera->fd, VIDIOC_STREAMOFF, &type);
+            uvcAssert(result != -1, "VIDIOC_STREAMOFF");
+            break;
+    }
 }
 
 
@@ -357,25 +454,35 @@ void uvcStop(uvcCamera_s *camera) {
 static bool captureFrame(uvcCamera_s *camera) {
     int result;
     struct v4l2_buffer buf;
-    memset(&buf, 0, sizeof buf);
-    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    buf.memory = V4L2_MEMORY_USERPTR;
-    result = xioctl(camera->fd, VIDIOC_DQBUF, &buf);
 
-    if (result == -1) {
-        if (errno == EAGAIN) {
-            return false;
-        }
+    switch (camera->io) {
+        case V4L2_MEMORY_READ:
+            uvcAssert(false, "not implemented");
+            break;
 
-        uvcAssert(result != -1, "VIDIOC_DQBUF");
+        case V4L2_MEMORY_MMAP:
+        case V4L2_MEMORY_USERPTR:
+            memset(&buf, 0, sizeof buf);
+            buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            buf.memory = camera->io;
+            result = xioctl(camera->fd, VIDIOC_DQBUF, &buf);
+
+            if (result == -1) {
+                if (errno == EAGAIN) {
+                    return false;
+                }
+
+                uvcAssert(result != -1, "VIDIOC_DQBUF");
+            }
+
+            printf("%d (%d bytes)", buf.index, buf.bytesused);
+            printf("%p %p\n", buf.m.userptr, camera->buffers[buf.index].start);
+            camera->head = &camera->buffers[(buf.index + NUM_BUFFERS - 1) % NUM_BUFFERS];
+            result = xioctl(camera->fd, VIDIOC_QBUF, &buf);
+            uvcAssert(result != -1, "VIDIOC_QBUF");
+            break;
     }
-
-    printf("%d (%d bytes)", buf.index, buf.bytesused);
-    printf("%p %p\n", buf.m.userptr, camera->buffers[buf.index].start);
-    camera->head = &camera->buffers[(buf.index + NUM_BUFFERS - 1) % NUM_BUFFERS];
-    result = xioctl(camera->fd, VIDIOC_QBUF, &buf);
-    uvcAssert(result != -1, "VIDIOC_QBUF");
-
+    
     return true;
 }
 

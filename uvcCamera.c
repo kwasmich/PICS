@@ -17,8 +17,11 @@
 #include <linux/videodev2.h>
 
 #include "uvcCapture.h"
-#include "omxJPEGEnc.h"
-#include "omxHelper.h"
+
+#ifndef NO_OMX
+#   include "omxJPEGEnc.h"
+#   include "omxHelper.h"
+#endif
 
 
 
@@ -31,7 +34,10 @@ typedef struct {
     pthread_t thread;
 
     uvcCamera_s *camera;
+
+#ifndef NO_OMX
     OMXContext_s *omx;
+#endif
 
     uint8_t *imageData;
     size_t imageSize;
@@ -48,8 +54,9 @@ static uvcCameraWorker_s s_video[10];
 
 struct timeval s_timeout = { .tv_sec = 2, .tv_usec = 0 };
 
+#ifndef NO_OMX
 static pthread_mutex_t s_omxMutex = PTHREAD_MUTEX_INITIALIZER;
-
+#endif
 
 
 // https://gist.github.com/bellbind/6813905
@@ -200,14 +207,19 @@ static void captureImage(uvcCameraWorker_s *cameraWorker) {
 
     uvcCaptureFrame(cameraWorker->camera, s_timeout);
 
-    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_YUYV) {
-        yuyv422_to_yuyv420(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
-    }
+#ifndef NO_OMX
+    switch (cameraWorker->camera->pixelFormat) {
+        case V4L2_PIX_FMT_YUYV:
+            yuyv422_to_yuyv420(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
+            break;
 
-    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_UYVY) {
-        uyvy422_to_uyvy420(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
-    }
+        case V4L2_PIX_FMT_UYVY:
+            uyvy422_to_uyvy420(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
+            break;
 
+        default:
+            break;
+    }
 
     result = pthread_mutex_lock(&s_omxMutex);
     assert(result == 0);
@@ -216,20 +228,26 @@ static void captureImage(uvcCameraWorker_s *cameraWorker) {
 
     result = pthread_mutex_unlock(&s_omxMutex);
     assert(result == 0);
+#else
+    uint8_t *rgb = NULL;
 
+    switch (cameraWorker->camera->pixelFormat) {
+        case V4L2_PIX_FMT_YUYV:
+            rgb = yuyv2rgb(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
+            break;
 
-//    uint8_t *rgb;
-//
-//    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_YUYV) {
-//        rgb = yuyv2rgb(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
-//    }
-//
-//    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_UYVY) {
-//        rgb = uyvy2rgb(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
-//    }
-//
-//    jpeg(&cameraWorker->imageData, &cameraWorker->imageFill, rgb, cameraWorker->camera->width, cameraWorker->camera->height, 25);
-//    free(rgb);
+        case V4L2_PIX_FMT_UYVY:
+            rgb = uyvy2rgb(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
+            break;
+
+        default:
+            assert(false);
+            break;
+    }
+
+    jpeg(&cameraWorker->imageData, &cameraWorker->imageFill, rgb, cameraWorker->camera->width, cameraWorker->camera->height, 25);
+    free(rgb);
+#endif
 
     printf("%zu\n", cameraWorker->imageFill);
     puts("done");
@@ -263,13 +281,25 @@ static void * cameraThread(void *data) {
     uvcCameraWorker_s *cameraWorker = data;
     int result;
 
-    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_YUYV) {
-        cameraWorker->omx = omxJPEGEncInit(cameraWorker->camera->width, cameraWorker->camera->height, cameraWorker->camera->height, 7, OMX_COLOR_FormatYCbYCr);
-    }
+#ifndef NO_OMX
+    switch (cameraWorker->camera->pixelFormat) {
+        case V4L2_PIX_FMT_YUYV:
+            cameraWorker->omx = omxJPEGEncInit(cameraWorker->camera->width, cameraWorker->camera->height, cameraWorker->camera->height, 7, OMX_COLOR_FormatYCbYCr);
+            break;
 
-    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_UYVY) {
-        cameraWorker->omx = omxJPEGEncInit(cameraWorker->camera->width, cameraWorker->camera->height, cameraWorker->camera->height, 7, OMX_COLOR_FormatCbYCrY);
+        case V4L2_PIX_FMT_UYVY:
+            cameraWorker->omx = omxJPEGEncInit(cameraWorker->camera->width, cameraWorker->camera->height, cameraWorker->camera->height, 7, OMX_COLOR_FormatCbYCrY);
+            break;
+
+        case V4L2_PIX_FMT_YUV420:
+            cameraWorker->omx = omxJPEGEncInit(cameraWorker->camera->width, cameraWorker->camera->height, cameraWorker->camera->height, 7, OMX_COLOR_FormatYUV420PackedPlanar);
+            break;
+
+        default:
+            puts("unsupported color format");
+            assert(false);
     }
+#endif
 
     result = pthread_cond_init(&cameraWorker->frameReadyCond, NULL);
     assert(result == 0);
@@ -337,7 +367,9 @@ exit:
         stopCamera(cameraWorker);
     }
 
+#ifndef NO_OMX
     omxJPEGEncDeinit(cameraWorker->omx);
+#endif
     return NULL;
 }
 

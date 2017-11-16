@@ -23,6 +23,7 @@ typedef struct {
 
 typedef struct {
     int fd;
+    int io;
     uint32_t width;
     uint32_t height;
     uint32_t pixelFormat;
@@ -38,6 +39,8 @@ void uvcDeinit(uvcCamera_s *camera);
 void uvcStart(uvcCamera_s *camera);
 void uvcStop(uvcCamera_s *camera);
 bool uvcCaptureFrame(uvcCamera_s *camera, struct timeval timeout);
+
+void uvcListPixelFormats(const char *device);
 
 
 #endif /* uvcCapture_h */
