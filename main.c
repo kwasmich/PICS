@@ -145,6 +145,12 @@ int main(void) {
         if (result != 0) {
             perror("pthread_create");
         }
+        
+        result = pthread_detach(newthread);
+        
+        if (result != 0) {
+            perror("pthread_detach");
+        }
     }
 
     return 0;
