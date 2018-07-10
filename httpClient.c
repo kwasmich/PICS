@@ -236,7 +236,8 @@ void * httpClientThread(void *data) {
     }
 
     shutdown(client->socket, SHUT_RDWR);
-    usleep(5000);
+    //usleep(5000);
     close(client->socket);
+    free(data);
     return NULL;
 }
