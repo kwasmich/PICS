@@ -118,7 +118,7 @@ int main(void) {
     omxAssert(omxErr);
 #endif
 
-    in_port_t port = 10000;
+    in_port_t port = 8080;
     struct sockaddr_in client_name;
     socklen_t client_name_len = sizeof client_name;
     pthread_t newthread;

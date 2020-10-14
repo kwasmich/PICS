@@ -176,6 +176,46 @@ static void stream(httpClient_s *client, int device) {
 
 
 
+static void still(httpClient_s *client, int device) {
+    const int skipFrames = 10;
+    printf("connected client: %d\n", client->socket);
+    uvcConnectClient(device);
+    char header[] = ("HTTP/1.1 200 OK\r\n"
+                     "Age: 0\r\n"
+                     "Cache-Control: no-cache, private\r\n"
+                     "Pragma: no-cache\r\n"
+                     "Content-Type: image/jpeg\r\n"
+                     "Content-Length: %d\r\n"
+                     "\r\n");
+
+    char header_a[1024];
+
+    discardHeaders(client->socket);
+
+    ssize_t err = 0;
+    uint8_t *imageData = NULL;
+    size_t imageSize = 0;
+
+    for (int i = 0; i < skipFrames; i++) {
+        uvcGetImage(device, &imageData, &imageSize);
+        uvcGetImageDone(device);
+    }
+
+    uvcGetImage(device, &imageData, &imageSize);
+    sprintf(header_a, header, imageSize);
+    err = send(client->socket, header_a, strlen(header_a), 0);
+    if (err == -1) goto error;
+    err = write(client->socket, imageData, imageSize);
+    if (err == -1) goto error;
+
+error:
+    uvcGetImageDone(device);
+    printf("disconnected client: %d\n", client->socket);
+    uvcDisconnectClient(device);
+}
+
+
+
 /**********************************************************************/
 /* A request has caused a call to accept() on the server port to
  * return.  Process the request appropriately.
@@ -209,6 +249,15 @@ void * httpClientThread(void *data) {
 
         if ((scanned == 1) && (device >= 0) && (device < 10) && uvcDoesCameraExist(device)) {
             stream(client, device);
+        } else {
+            notFound(client->socket);
+        }
+    } else if (strncasecmp(path, "/dev/still", strlen("/dev/still")) == 0) {
+        int device = -1;
+        int scanned = sscanf(path, "/dev/still%d", &device);
+
+        if ((scanned == 1) && (device >= 0) && (device < 10) && uvcDoesCameraExist(device)) {
+            still(client, device);
         } else {
             notFound(client->socket);
         }

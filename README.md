@@ -32,7 +32,7 @@ PICS also provides a simple file server for static files that can be placed with
 The content of the folder provides the content of the http server root.
 To access a camera stream open the URL
 
-    http://localhost:10000/dev/video0
+    http://localhost:8080/dev/video0
 
 where video0 can be replaced with video1 through video9 if present.
 
