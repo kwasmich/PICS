@@ -78,6 +78,7 @@ int startup(in_port_t *port)
 
 
 int s_server_sock = -1;
+volatile static bool s_keep_alive = true;
 
 
 
@@ -100,6 +101,7 @@ static void destroy() {
 
 static void terminated(const int in_SIG) {
     fprintf(stderr, "\nTERMINATING due to signal %i\n", in_SIG);
+    s_keep_alive = false;
     exit(1);
 }
 
@@ -130,7 +132,7 @@ int main(void) {
         uvcInitWorker(i);
     }
 
-    while (true) {
+    while (s_keep_alive) {
         httpClient_s *client = malloc(sizeof (httpClient_s));
         client->socket = accept(s_server_sock, (struct sockaddr *)&client_name, &client_name_len);
         client->keepAlive = true;

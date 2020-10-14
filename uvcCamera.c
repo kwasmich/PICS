@@ -207,47 +207,52 @@ static void captureImage(uvcCameraWorker_s *cameraWorker) {
 
     uvcCaptureFrame(cameraWorker->camera, s_timeout);
 
+    if (cameraWorker->camera->pixelFormat == V4L2_PIX_FMT_JPEG) {
+        cameraWorker->imageData = cameraWorker->camera->head->start;
+        cameraWorker->imageFill = cameraWorker->camera->head->length;
+    } else {
 #ifndef NO_OMX
-    switch (cameraWorker->camera->pixelFormat) {
-        case V4L2_PIX_FMT_YUYV:
-            yuyv422_to_yuyv420(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
-            break;
+        switch (cameraWorker->camera->pixelFormat) {
+            case V4L2_PIX_FMT_YUYV:
+                yuyv422_to_yuyv420(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
+                break;
 
-        case V4L2_PIX_FMT_UYVY:
-            uyvy422_to_uyvy420(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
-            break;
+            case V4L2_PIX_FMT_UYVY:
+                uyvy422_to_uyvy420(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
+                break;
 
-        default:
-            break;
-    }
+            default:
+                break;
+        }
 
-    result = pthread_mutex_lock(&s_omxMutex);
-    assert(result == 0);
+        result = pthread_mutex_lock(&s_omxMutex);
+        assert(result == 0);
 
-    omxJPEGEncProcess(cameraWorker->omx, cameraWorker->imageData, &cameraWorker->imageFill, cameraWorker->imageSize, cameraWorker->camera->head->start, cameraWorker->camera->head->length);
+        omxJPEGEncProcess(cameraWorker->omx, cameraWorker->imageData, &cameraWorker->imageFill, cameraWorker->imageSize, cameraWorker->camera->head->start, cameraWorker->camera->head->length);
 
-    result = pthread_mutex_unlock(&s_omxMutex);
-    assert(result == 0);
+        result = pthread_mutex_unlock(&s_omxMutex);
+        assert(result == 0);
 #else
-    uint8_t *rgb = NULL;
+        uint8_t *rgb = NULL;
 
-    switch (cameraWorker->camera->pixelFormat) {
-        case V4L2_PIX_FMT_YUYV:
-            rgb = yuyv2rgb(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
-            break;
+        switch (cameraWorker->camera->pixelFormat) {
+            case V4L2_PIX_FMT_YUYV:
+                rgb = yuyv2rgb(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
+                break;
 
-        case V4L2_PIX_FMT_UYVY:
-            rgb = uyvy2rgb(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
-            break;
+            case V4L2_PIX_FMT_UYVY:
+                rgb = uyvy2rgb(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
+                break;
 
-        default:
-            assert(false);
-            break;
-    }
+            default:
+                assert(false);
+                break;
+        }
 
-    jpeg(&cameraWorker->imageData, &cameraWorker->imageFill, rgb, cameraWorker->camera->width, cameraWorker->camera->height, 25);
-    free(rgb);
+        jpeg(&cameraWorker->imageData, &cameraWorker->imageFill, rgb, cameraWorker->camera->width, cameraWorker->camera->height, 25);
+        free(rgb);
 #endif
+    }
 
     printf("%zu\n", cameraWorker->imageFill);
     puts("done");
@@ -293,6 +298,10 @@ static void * cameraThread(void *data) {
 
         case V4L2_PIX_FMT_YUV420:
             cameraWorker->omx = omxJPEGEncInit(cameraWorker->camera->width, cameraWorker->camera->height, cameraWorker->camera->height, 7, OMX_COLOR_FormatYUV420PackedPlanar);
+            break;
+
+        case V4L2_PIX_FMT_JPEG:
+            cameraWorker->omx = NULL;
             break;
 
         default:
@@ -368,7 +377,9 @@ exit:
     }
 
 #ifndef NO_OMX
-    omxJPEGEncDeinit(cameraWorker->omx);
+    if (cameraWorker->omx) {
+        omxJPEGEncDeinit(cameraWorker->omx);
+    }
 #endif
     return NULL;
 }

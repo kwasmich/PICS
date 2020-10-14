@@ -18,6 +18,7 @@
 
 #include "uvcCamera.h"
 #include "mmapHelper.h"
+#include "cHelper.h"
 
 
 
@@ -232,7 +233,10 @@ void * httpClientThread(void *data) {
     char *httpVersion;
 
     numChars = getLine(client->socket, buf, sizeof buf);
-    assert(numChars > 0);
+
+    if (!(numChars > 0)) {
+        goto endThread;
+    }
 
     buffer = buf;
     method = strsep(&buffer, " ");
@@ -284,6 +288,7 @@ void * httpClientThread(void *data) {
         }
     }
 
+endThread:
     shutdown(client->socket, SHUT_RDWR);
     //usleep(5000);
     close(client->socket);
