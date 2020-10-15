@@ -19,6 +19,9 @@
 #include <sys/mman.h>
 
 
+#include "cHelper.h"
+
+
 #define uvcAssert(cond, message) \
 if (!(cond)) { \
 fprintf(stderr, "[%s:%d (%s)] %s %d: %s\n", __FILE__, __LINE__, __func__, "" message, errno, strerror(errno)); \
@@ -261,6 +264,12 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     format.fmt.pix.pixelformat = pixelFormat;
     format.fmt.pix.field = V4L2_FIELD_NONE;
     result = xioctl(camera->fd, VIDIOC_S_FMT, &format);
+
+    if (result == -1) {
+        free(camera);
+        return NULL;
+    }
+
     uvcAssert(result != -1, "VIDIOC_S_FMT");
     result = xioctl(camera->fd, VIDIOC_G_FMT, &format);
     uvcAssert(result != -1, "VIDIOC_G_FMT");
@@ -452,6 +461,7 @@ void uvcStop(uvcCamera_s *camera) {
 
 
 static bool captureFrame(uvcCamera_s *camera) {
+    static int lastBufIndex = -1;
     int result;
     struct v4l2_buffer buf;
 
@@ -475,7 +485,13 @@ static bool captureFrame(uvcCamera_s *camera) {
                 uvcAssert(result != -1, "VIDIOC_DQBUF");
             }
 
-            printf("%d (%d bytes)", buf.index, buf.bytesused);
+            if ((buf.index - lastBufIndex + NUM_BUFFERS) % NUM_BUFFERS != 1) {
+                puts(COLOR_RED "Frames out of sequence!" COLOR_NC);
+            }
+
+            lastBufIndex = buf.index;
+
+            printf("%d (%d bytes)\n", buf.index, buf.bytesused);
             printf("%p %p\n", buf.m.userptr, camera->buffers[buf.index].start);
             camera->head = &camera->buffers[(buf.index + NUM_BUFFERS - 1) % NUM_BUFFERS];
             result = xioctl(camera->fd, VIDIOC_QBUF, &buf);

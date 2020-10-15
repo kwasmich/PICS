@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <assert.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -49,6 +50,7 @@ void error_die(const char *sc)
 /**********************************************************************/
 int startup(in_port_t *port)
 {
+    int err = 0;
     int httpd = 0;
     struct sockaddr_in name;
 
@@ -59,6 +61,12 @@ int startup(in_port_t *port)
     name.sin_family = AF_INET;
     name.sin_port = htons(*port);
     name.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    int val = 1;
+    err = setsockopt(httpd, SOL_SOCKET, SO_REUSEADDR, &val, sizeof val);
+    perror("setsockopt");
+    assert(err == 0);
+
     if (bind(httpd, (struct sockaddr *)&name, sizeof name) < 0)
         error_die("bind");
     if (*port == 0)  /* if dynamically allocating a port */
@@ -78,18 +86,24 @@ int startup(in_port_t *port)
 
 
 int s_server_sock = -1;
-volatile static bool s_keep_alive = true;
+static volatile bool s_keep_alive = true;
 
 
 
 static void destroy() {
+    int err = 0;
     fputs("destroy\n", stderr);
 
     for (int i = 0; i < 10; i++) {
         uvcDeinitWorker(i);
     }
 
-    close(s_server_sock);
+    if (s_server_sock != -1) {
+        err = shutdown(s_server_sock, SHUT_RDWR);
+        assert(err == 0);
+        err = close(s_server_sock);
+        assert(err == 0);
+    }
 
 #ifndef NO_OMX
     OMX_Deinit();

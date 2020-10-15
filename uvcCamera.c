@@ -17,6 +17,7 @@
 #include <linux/videodev2.h>
 
 #include "uvcCapture.h"
+#include "cHelper.h"
 
 #ifndef NO_OMX
 #   include "omxJPEGEnc.h"
@@ -254,6 +255,8 @@ static void captureImage(uvcCameraWorker_s *cameraWorker) {
 #endif
     }
 
+    assert(cameraWorker->imageFill <= cameraWorker->imageSize);
+
     printf("%zu\n", cameraWorker->imageFill);
     puts("done");
 
@@ -490,10 +493,17 @@ void uvcInitWorker(int device) {
 
     if (err == 0) {
         cameraWorker->camera = uvcInit(path, 640, 480, V4L2_PIX_FMT_YUYV);
-        cameraWorker->imageSize = cameraWorker->camera->width * cameraWorker->camera->height * sizeof(uint8_t);
-        cameraWorker->imageData = malloc(cameraWorker->imageSize);
-        err = pthread_create(&cameraWorker->thread , NULL, cameraThread, &s_video[device]);
-        assert(err == 0);
+
+        if (cameraWorker->camera) {
+            cameraWorker->imageSize = cameraWorker->camera->width * cameraWorker->camera->height * sizeof(uint8_t);
+            cameraWorker->imageData = malloc(cameraWorker->imageSize);
+            err = pthread_create(&cameraWorker->thread , NULL, cameraThread, &s_video[device]);
+            assert(err == 0);
+        } else {
+            printf(COLOR_RED "\nfailed to open %s" COLOR_NC "\n", path);
+        }
+    } else {
+        printf(COLOR_RED "\nfailed to open %s" COLOR_NC "\n", path);
     }
 }
 
