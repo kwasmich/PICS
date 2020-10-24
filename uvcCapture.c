@@ -14,7 +14,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <linux/videodev2.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 
@@ -24,7 +23,7 @@
 
 #define uvcAssert(cond, message) \
 if (!(cond)) { \
-fprintf(stderr, "[%s:%d (%s)] %s %d: %s\n", __FILE__, __LINE__, __func__, "" message, errno, strerror(errno)); \
+fprintf(stderr, "[%s:%d (%s)] %s - last error: %d - %s\n", __FILE__, __LINE__, __func__, "" message, errno, strerror(errno)); \
 exit(EXIT_FAILURE); \
 }
 
@@ -53,6 +52,17 @@ static int xioctl(int fd, int request, void *arg) {
 void uvcListPixelFormats(const char *device) {
     int fd = open(device, O_RDWR | O_NONBLOCK, 0);
     uvcAssert(fd != -1, "open");
+
+    struct v4l2_capability cap;
+    int result = xioctl(fd, VIDIOC_QUERYCAP, &cap);
+    uvcAssert(result != -1, "VIDIOC_QUERYCAP");
+    uvcAssert(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE, "no capture");
+
+    if (!(cap.device_caps & V4L2_CAP_VIDEO_CAPTURE)) {
+        goto exit;
+    }
+
+    uvcAssert(cap.device_caps & V4L2_CAP_VIDEO_CAPTURE, "no capture");
 
     static const uint32_t pix_formats[] = {
         V4L2_PIX_FMT_ABGR32,
@@ -185,7 +195,6 @@ void uvcListPixelFormats(const char *device) {
 
     const int count = sizeof pix_formats / sizeof pix_formats[0];
     struct v4l2_format format;
-    int result;
 
     for (int i = 0; i < count; i++) {
         memset(&format, 0, sizeof format);
@@ -215,17 +224,22 @@ void uvcListPixelFormats(const char *device) {
         }
     }
 
-    int err = close(fd);
-    uvcAssert(err != -1, "close");
+exit:
+    result = close(fd);
+    uvcAssert(result != -1, "close");
 }
 
 
 
 uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint32_t pixelFormat) {
+//    pthread_t thread = pthread_self();
+//    printf(COLOR_CYAN "uvcInit: %08lx\n" COLOR_NC, thread);
+
     int fd = open(device, O_RDWR | O_NONBLOCK, 0);
     uvcAssert(fd != -1, "open");
     uvcCamera_s *camera = malloc(sizeof(uvcCamera_s));
     camera->fd = fd;
+    camera->lastFrameIndex = -1;
     camera->width = 0;
     camera->height = 0;
     camera->bufferCount = 0;
@@ -238,6 +252,14 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     uvcAssert(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE, "no capture");
     uvcAssert(cap.capabilities & V4L2_CAP_STREAMING, "no streaming"); // required for mmap
 
+    if (!(cap.device_caps & V4L2_CAP_VIDEO_CAPTURE)) {
+        free(camera);
+        int err = close(fd);
+        uvcAssert(err != -1, "close");
+        return NULL;
+    }
+
+    uvcAssert(cap.device_caps & V4L2_CAP_VIDEO_CAPTURE, "no capture");
 
     // reset cropping and scaling
     struct v4l2_cropcap cropcap;
@@ -264,12 +286,6 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     format.fmt.pix.pixelformat = pixelFormat;
     format.fmt.pix.field = V4L2_FIELD_NONE;
     result = xioctl(camera->fd, VIDIOC_S_FMT, &format);
-
-    if (result == -1) {
-        free(camera);
-        return NULL;
-    }
-
     uvcAssert(result != -1, "VIDIOC_S_FMT");
     result = xioctl(camera->fd, VIDIOC_G_FMT, &format);
     uvcAssert(result != -1, "VIDIOC_G_FMT");
@@ -288,7 +304,8 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
 
     if (streamparam.parm.capture.capability & V4L2_CAP_TIMEPERFRAME) {
         streamparam.parm.capture.timeperframe.numerator = 1;
-        streamparam.parm.capture.timeperframe.denominator = 5;
+        streamparam.parm.capture.timeperframe.denominator = 1;
+        printf("FPS: %d\n", streamparam.parm.capture.timeperframe.denominator);
         result = xioctl(camera->fd, VIDIOC_S_PARM, &streamparam);
         uvcAssert(result != -1, "VIDIOC_S_PARM");
         result = xioctl(camera->fd, VIDIOC_G_PARM, &streamparam);
@@ -298,34 +315,35 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     printf("FPS: %d\n", streamparam.parm.capture.timeperframe.denominator);
 
 
-    // allocate buffers
-    struct v4l2_requestbuffers req;
-    memset(&req, 0, sizeof req);
-    req.count = NUM_BUFFERS;
-    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    req.memory = V4L2_MEMORY_USERPTR;
-    result = xioctl(camera->fd, VIDIOC_REQBUFS, &req);
-
-    if (result == 0) {
-        camera->io = V4L2_MEMORY_USERPTR;
-        camera->bufferCount = req.count;
-        camera->buffers = calloc(req.count, sizeof(buffer_s));
-        uvcAssert(camera->buffers, "allocating buffers");
-
-        printf("%dx%d (%d x %d bytes)\n", camera->width, camera->height, camera->bufferCount, camera->bufferSize);
-
-        for (int i = 0; i < camera->bufferCount; i++) {
-            camera->buffers[i].length = camera->bufferSize;
-            camera->buffers[i].start = malloc(camera->bufferSize);
-            uvcAssert(camera->buffers[i].start, "allocating buffers");
-        }
-
-        puts("Using USERPTR");
-        return camera;
-    }
+//    // allocate buffers
+//    struct v4l2_requestbuffers req;
+//    memset(&req, 0, sizeof req);
+//    req.count = NUM_BUFFERS;
+//    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+//    req.memory = V4L2_MEMORY_USERPTR;
+//    result = xioctl(camera->fd, VIDIOC_REQBUFS, &req);
+//
+//    if (result == 0) {
+//        camera->io = V4L2_MEMORY_USERPTR;
+//        camera->bufferCount = req.count;
+//        camera->buffers = calloc(req.count, sizeof(buffer_s));
+//        uvcAssert(camera->buffers, "allocating buffers");
+//
+//        printf("%dx%d (%d x %d bytes)\n", camera->width, camera->height, camera->bufferCount, camera->bufferSize);
+//
+//        for (int i = 0; i < camera->bufferCount; i++) {
+//            camera->buffers[i].length = camera->bufferSize;
+//            camera->buffers[i].start = malloc(camera->bufferSize);
+//            uvcAssert(camera->buffers[i].start, "allocating buffers");
+//        }
+//
+//        puts("Using USERPTR");
+//        return camera;
+//    }
 
 
     // attempt to use mmap instead of user_ptr
+    struct v4l2_requestbuffers req;
     memset(&req, 0, sizeof req);
     req.count = NUM_BUFFERS;
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -337,6 +355,9 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
         camera->io = V4L2_MEMORY_MMAP;
         camera->bufferCount = req.count;
         camera->buffers = calloc(req.count, sizeof(buffer_s));
+        camera->head = calloc(1, sizeof(buffer_s));
+        camera->head->length = camera->bufferSize;
+        camera->head->start = malloc(camera->bufferSize);
         uvcAssert(camera->buffers, "allocating buffers");
 
         printf("%dx%d (%d x %d bytes)\n", camera->width, camera->height, camera->bufferCount, camera->bufferSize);
@@ -359,11 +380,15 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     }
 
     uvcAssert(result != -1, "VIDIOC_REQBUFS");
+    return NULL;
 }
 
 
 
 void uvcDeinit(uvcCamera_s *camera) {
+//    pthread_t thread = pthread_self();
+//    printf(COLOR_CYAN "uvcDeinit: %08lx\n" COLOR_NC, thread);
+
     switch (camera->io) {
         case V4L2_MEMORY_MMAP:
             for (int i = 0; i < camera->bufferCount; i++) {
@@ -389,6 +414,8 @@ void uvcDeinit(uvcCamera_s *camera) {
     free(camera->buffers);
     camera->bufferCount = 0;
     camera->buffers = NULL;
+    free(camera->head->start);
+    free(camera->head);
     camera->head = NULL;
 
     int err = close(camera->fd);
@@ -399,6 +426,9 @@ void uvcDeinit(uvcCamera_s *camera) {
 
 
 void uvcStart(uvcCamera_s *camera) {
+//    pthread_t thread = pthread_self();
+//    printf(COLOR_CYAN "uvcStart: %08lx\n" COLOR_NC, thread);
+
     int result;
     enum v4l2_buf_type type;
 
@@ -434,13 +464,10 @@ void uvcStart(uvcCamera_s *camera) {
 
 
 
-static void uvcMainloop() {
-
-}
-
-
-
 void uvcStop(uvcCamera_s *camera) {
+//    pthread_t thread = pthread_self();
+//    printf(COLOR_CYAN "uvcStop: %08lx\n" COLOR_NC, thread);
+
     int result;
     enum v4l2_buf_type type;
 
@@ -461,9 +488,9 @@ void uvcStop(uvcCamera_s *camera) {
 
 
 static bool captureFrame(uvcCamera_s *camera) {
-    static int lastBufIndex = -1;
+//    pthread_t thread = pthread_self();
+//    printf(COLOR_CYAN "captureFrame: %08lx\n" COLOR_NC, thread);
     int result;
-    struct v4l2_buffer buf;
 
     switch (camera->io) {
         case V4L2_MEMORY_READ:
@@ -472,10 +499,10 @@ static bool captureFrame(uvcCamera_s *camera) {
 
         case V4L2_MEMORY_MMAP:
         case V4L2_MEMORY_USERPTR:
-            memset(&buf, 0, sizeof buf);
-            buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-            buf.memory = camera->io;
-            result = xioctl(camera->fd, VIDIOC_DQBUF, &buf);
+            memset(&camera->buf, 0, sizeof camera->buf);
+            camera->buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            camera->buf.memory = camera->io;
+            result = xioctl(camera->fd, VIDIOC_DQBUF, &camera->buf);
 
             if (result == -1) {
                 if (errno == EAGAIN) {
@@ -485,35 +512,51 @@ static bool captureFrame(uvcCamera_s *camera) {
                 uvcAssert(result != -1, "VIDIOC_DQBUF");
             }
 
-            if ((buf.index - lastBufIndex + NUM_BUFFERS) % NUM_BUFFERS != 1) {
-                puts(COLOR_RED "Frames out of sequence!" COLOR_NC);
-            }
+//            if ((camera->buf.index - camera->lastFrameIndex + NUM_BUFFERS) % NUM_BUFFERS != 1) {
+//                puts(COLOR_RED "Frames out of sequence!" COLOR_NC);
+//            }
 
-            lastBufIndex = buf.index;
+            camera->lastFrameIndex = camera->buf.index;
 
-            printf("%d (%d bytes)\n", buf.index, buf.bytesused);
-            printf("%p %p\n", buf.m.userptr, camera->buffers[buf.index].start);
-            camera->head = &camera->buffers[(buf.index + NUM_BUFFERS - 1) % NUM_BUFFERS];
+//            printf("%d (%d bytes)\n", camera->buf.index, camera->buf.bytesused);
+//            printf("%08lx %p\n", camera->buf.m.userptr, camera->buffers[camera->buf.index].start);
+//            camera->head = &camera->buffers[(camera->buf.index + NUM_BUFFERS - 1) % NUM_BUFFERS];
+            memcpy(camera->head->start, camera->buffers[camera->buf.index].start, camera->head->length);
             result = xioctl(camera->fd, VIDIOC_QBUF, &buf);
             uvcAssert(result != -1, "VIDIOC_QBUF");
             break;
     }
-    
+
+//    printf(COLOR_CYAN "captureFrame: %08lx DONE\n" COLOR_NC, thread);
     return true;
 }
 
 
 
 bool uvcCaptureFrame(uvcCamera_s *camera, struct timeval timeout) {
-    fd_set fds;
-    FD_ZERO(&fds);
-    FD_SET(camera->fd, &fds);
-    int r = select(camera->fd + 1, &fds, 0, 0, &timeout);
+//    pthread_t thread = pthread_self();
+//    printf(COLOR_CYAN "uvcCaptureFrame: %08lx\n" COLOR_NC, thread);
+
+    fd_set fds_r;
+    FD_ZERO(&fds_r);
+    FD_SET(camera->fd, &fds_r);
+    fd_set fds_w;
+    FD_ZERO(&fds_w);
+    FD_SET(camera->fd, &fds_w);
+    fd_set fds_e;
+    FD_ZERO(&fds_e);
+    FD_SET(camera->fd, &fds_e);
+    int r = select(camera->fd + 1, &fds_r, &fds_w, &fds_e, &timeout);
     uvcAssert(r != -1, "select");
+
+//    printf(COLOR_CYAN "uvcCaptureFrame: %08lx SELECT DONE\n" COLOR_NC, thread);
     
     if (r == 0) {
+//        printf(COLOR_CYAN "uvcCaptureFrame: %08lx FAILED\n" COLOR_NC, thread);
         return 0;
     } else {
-        return captureFrame(camera);
+        bool x = captureFrame(camera);
+//        printf(COLOR_CYAN "uvcCaptureFrame: %08lx DONE\n" COLOR_NC, thread);
+        return x;
     }
 }

@@ -151,7 +151,7 @@ static void stream(httpClient_s *client, int device) {
     uint8_t *imageData = NULL;
     size_t imageSize = 0;
 
-    int cnt = 1000;
+    int cnt = 250; // limit presented frames
 
     while (client->keepAlive && cnt) {
         uvcGetImage(device, &imageData, &imageSize);
@@ -163,7 +163,7 @@ static void stream(httpClient_s *client, int device) {
         err = write(client->socket, imageData, imageSize);
         if (err == -1) break;
         uvcGetImageDone(device);
-        cnt--;
+        // cnt--; // unlimited
     }
 
     printf("disconnected client: %d\n", client->socket);

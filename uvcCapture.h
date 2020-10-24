@@ -12,8 +12,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <linux/videodev2.h>
 #include <sys/time.h>
-
 
 typedef struct {
     uint8_t *start;
@@ -24,6 +24,7 @@ typedef struct {
 typedef struct {
     int fd;
     int io;
+    int lastFrameIndex;
     uint32_t width;
     uint32_t height;
     uint32_t pixelFormat;
@@ -31,6 +32,7 @@ typedef struct {
     uint32_t bufferSize;
     buffer_s *buffers;
     buffer_s *head;
+    struct v4l2_buffer buf;
 } uvcCamera_s;
 
 

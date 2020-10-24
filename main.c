@@ -18,6 +18,7 @@
 
 #include "httpClient.h"
 #include "uvcCamera.h"
+#include "cHelper.h"
 
 
 
@@ -120,8 +121,40 @@ static void terminated(const int in_SIG) {
 }
 
 
+static void help() {
+    puts("    -p port             port to listen ");
+}
 
-int main(void) {
+
+int main(int argc, char **argv) {
+    in_port_t port = 8080;
+    int device = 0;
+    int opt;
+
+    while ((opt = getopt(argc, argv, "?p:d:")) > 0) {
+        switch (opt) {
+            case 'p':
+                port = atoi(optarg);
+
+                if (port < 1024) {
+                    fprintf(stderr, "Invalid port number %d\n", port);
+                    help();
+                    exit(EXIT_FAILURE);
+                }
+
+                break;
+
+            case 'd':
+                device = atoi(optarg);
+                break;
+
+            case '?':
+            default:
+                help();
+                exit(EXIT_FAILURE);
+        }
+    }
+
     atexit(destroy);
     signal(SIGINT, terminated);
     signal(SIGPIPE, SIG_IGN); // ignore broken pipe
@@ -134,10 +167,8 @@ int main(void) {
     omxAssert(omxErr);
 #endif
 
-    in_port_t port = 8080;
     struct sockaddr_in client_name;
     socklen_t client_name_len = sizeof client_name;
-    pthread_t newthread;
     
     s_server_sock = startup(&port);
     printf("httpd running on port %d\n", port);
@@ -146,7 +177,10 @@ int main(void) {
         uvcInitWorker(i);
     }
 
+//    uvcInitWorker(device);
+
     while (s_keep_alive) {
+        pthread_t newThread;
         httpClient_s *client = malloc(sizeof (httpClient_s));
         client->socket = accept(s_server_sock, (struct sockaddr *)&client_name, &client_name_len);
         client->keepAlive = true;
@@ -156,13 +190,15 @@ int main(void) {
             continue;
         }
 
-        int result = pthread_create(&newthread , NULL, httpClientThread, client);
+        int result = pthread_create(&newThread , NULL, httpClientThread, client);
 
         if (result != 0) {
             perror("pthread_create");
         }
+
+//        printf(COLOR_YELLOW "httpClientThread: %08lx\n" COLOR_NC, newThread);
         
-        result = pthread_detach(newthread);
+        result = pthread_detach(newThread);
         
         if (result != 0) {
             perror("pthread_detach");

@@ -9,6 +9,7 @@
 #include "uvcCamera.h"
 
 #include <assert.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -53,7 +54,7 @@ typedef struct {
 
 static uvcCameraWorker_s s_video[10];
 
-struct timeval s_timeout = { .tv_sec = 2, .tv_usec = 0 };
+static struct timeval s_timeout = { .tv_sec = 2, .tv_usec = 0 };
 
 #ifndef NO_OMX
 static pthread_mutex_t s_omxMutex = PTHREAD_MUTEX_INITIALIZER;
@@ -196,10 +197,13 @@ static void startCamera(uvcCameraWorker_s *cameraWorker) {
 static void captureImage(uvcCameraWorker_s *cameraWorker) {
     int result;
     //fputs("capturing Image...", stdout);
-    fflush(stdout);
+    //fflush(stdout);
 
+
+//    fprintf(stderr, "Lock...");
     result = pthread_mutex_lock(&cameraWorker->frameMutex);
     assert(result == 0);
+//    fprintf(stderr, "acquired\n");
 
     while (cameraWorker->numWaitingClients < cameraWorker->numClients) {
         result = pthread_cond_wait(&cameraWorker->clientsWaitingCond, &cameraWorker->frameMutex);
@@ -257,8 +261,8 @@ static void captureImage(uvcCameraWorker_s *cameraWorker) {
 
     assert(cameraWorker->imageFill <= cameraWorker->imageSize);
 
-    printf("%zu\n", cameraWorker->imageFill);
-    puts("done");
+//    printf("%zu\n", cameraWorker->imageFill);
+//    puts("done");
 
     cameraWorker->numProcessingClients = cameraWorker->numWaitingClients;
     cameraWorker->numWaitingClients = 0;
@@ -360,6 +364,13 @@ static void * cameraThread(void *data) {
 
 exit:
 
+    uvcDeinit(cameraWorker->camera);
+    cameraWorker->imageSize = 0;
+    cameraWorker->imageFill = 0;
+    free(cameraWorker->imageData);
+    result = pthread_cond_signal(&cameraWorker->clientConnectedCond);
+    assert(result == 0);
+
     result = pthread_mutex_destroy(&cameraWorker->frameMutex);
     assert(result == 0);
 
@@ -384,12 +395,17 @@ exit:
         omxJPEGEncDeinit(cameraWorker->omx);
     }
 #endif
+
+//    puts("cameraThread DONE");
     return NULL;
 }
 
 
 
 bool uvcDoesCameraExist(int device) {
+//    pthread_t thread = pthread_self();
+//    printf(COLOR_YELLOW "uvcDoesCameraExist: %08lx\n" COLOR_NC, thread);
+
     uvcCameraWorker_s *cameraWorker = &s_video[device];
     return cameraWorker->camera != NULL;
 }
@@ -397,6 +413,9 @@ bool uvcDoesCameraExist(int device) {
 
 
 void uvcConnectClient(int device) {
+//    pthread_t thread = pthread_self();
+//    printf(COLOR_YELLOW "uvcConnectClient: %08lx\n" COLOR_NC, thread);
+
     uvcCameraWorker_s *cameraWorker = &s_video[device];
     int result;
     result = pthread_mutex_lock(&cameraWorker->frameMutex);
@@ -416,6 +435,9 @@ void uvcConnectClient(int device) {
 
 
 void uvcDisconnectClient(int device) {
+//    pthread_t thread = pthread_self();
+//    printf(COLOR_YELLOW "uvcDisconnectClient: %08lx\n" COLOR_NC, thread);
+
     uvcCameraWorker_s *cameraWorker = &s_video[device];
     int result;
     result = pthread_mutex_lock(&cameraWorker->frameMutex);
@@ -435,6 +457,9 @@ void uvcDisconnectClient(int device) {
 
 
 void uvcGetImage(int device, uint8_t **data, size_t *len) {
+//    pthread_t thread = pthread_self();
+//    printf(COLOR_YELLOW "uvcGetImage: %08lx\n" COLOR_NC, thread);
+
     uvcCameraWorker_s *cameraWorker = &s_video[device];
     int result;
     result = pthread_mutex_lock(&cameraWorker->frameMutex);
@@ -458,6 +483,9 @@ void uvcGetImage(int device, uint8_t **data, size_t *len) {
 
 
 void uvcGetImageDone(int device) {
+//    pthread_t thread = pthread_self();
+//    printf(COLOR_YELLOW "uvcGetImageDone: %08lx\n" COLOR_NC, thread);
+
     uvcCameraWorker_s *cameraWorker = &s_video[device];
     int result;
     cameraWorker->numProcessingClients--;
@@ -487,7 +515,7 @@ void uvcInitWorker(int device) {
 
     int err;
     struct stat st;
-    char path[12];
+    char path[16];
     sprintf(path, "/dev/video%d", device);
     err = stat(path, &st);
 
@@ -497,29 +525,26 @@ void uvcInitWorker(int device) {
         if (cameraWorker->camera) {
             cameraWorker->imageSize = cameraWorker->camera->width * cameraWorker->camera->height * sizeof(uint8_t);
             cameraWorker->imageData = malloc(cameraWorker->imageSize);
-            err = pthread_create(&cameraWorker->thread , NULL, cameraThread, &s_video[device]);
+            err = pthread_create(&cameraWorker->thread, NULL, cameraThread, &s_video[device]);
             assert(err == 0);
+            err = pthread_detach(&cameraWorker->thread);
+            assert(err == 0);
+            printf(COLOR_YELLOW "uvcInitWorker %d: %08lx\n" COLOR_NC, device, cameraWorker->thread);
         } else {
             printf(COLOR_RED "\nfailed to open %s" COLOR_NC "\n", path);
         }
     } else {
-        printf(COLOR_RED "\nfailed to open %s" COLOR_NC "\n", path);
+        printf(COLOR_RED "\ncould not find %s" COLOR_NC "\n", path);
     }
 }
 
 
 
 void uvcDeinitWorker(int device) {
-    uvcCameraWorker_s *cameraWorker = &s_video[device];
+//    pthread_t thread = pthread_self();
+//    printf(COLOR_YELLOW "uvcDeinitWorker: %08lx\n" COLOR_NC, thread);
 
-    if (cameraWorker->thread) {
-        uvcDeinit(cameraWorker->camera);
-        cameraWorker->keepAlive = false;
-        cameraWorker->imageSize = 0;
-        cameraWorker->imageFill = 0;
-        free(cameraWorker->imageData);
-        int result = pthread_cond_signal(&cameraWorker->clientConnectedCond);
-        assert(result == 0);
-        pthread_join(cameraWorker->thread, NULL);
-    }
+    uvcCameraWorker_s *cameraWorker = &s_video[device];
+    cameraWorker->keepAlive = false;
+    puts("uvcDeinitWorker DONE");
 }

@@ -109,3 +109,5 @@ image while the lower half does not carry chroma information. Thus wasting memor
 To be still able to use OpenMAX I had to write a method to "compress" the chroma vertically. This intoduces a higher
 than intended CPU usage. Instead of ~11% CPU PICS consumes ~16% CPU while streaming and 0% while noone is watching.
 This is still much lower than rougnly 90-100% CPU usage from other MJPEG streaming software.
+
+    v4l2-ctl -d /dev/video0 --list-formats
