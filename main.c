@@ -95,7 +95,7 @@ static void destroy() {
     int err = 0;
     fputs("destroy\n", stderr);
 
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 20; i++) {
         uvcDeinitWorker(i);
     }
 
@@ -173,7 +173,7 @@ int main(int argc, char **argv) {
     s_server_sock = startup(&port);
     printf("httpd running on port %d\n", port);
 
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 20; i++) {
         uvcInitWorker(i);
     }
 

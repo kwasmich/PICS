@@ -27,7 +27,7 @@ make
 ```
 `
 
-On startup it detects all video devices in `/dev/video*` (currently limited from 0 to 9).
+On startup it detects all video devices in `/dev/video*` (currently limited from 0 to 19).
 PICS also provides a simple file server for static files that can be placed within the `htdocs` folder.
 The content of the folder provides the content of the http server root.
 To access a camera stream open the URL
@@ -36,6 +36,8 @@ To access a camera stream open the URL
 
 where video0 can be replaced with video1 through video9 if present.
 
+Using OpenMAX requires at least **32 MB** of RAM to be assigned to the VideoCore IV by setting
+the memory split in `raspi-config`.
 
 
 
@@ -52,7 +54,7 @@ This way it will be loaded and available right afer each reboot. Or by loading i
 
 Then you will have to set the desired frame size and pixel format:
 
-    v4l2-ctl --set-fmt-video=width=640,height=480,pixelformat=0
+    v4l2-ctl -d /dev/video? --set-fmt-video=width=640,height=480,pixelformat=0
 
 
 
@@ -63,6 +65,9 @@ Currently many things are hardcoded like the TCP port and the frame size. This w
 
 * Setting the frame rate.
 * Stream does not work on Medion Smart TV.
+
+
+## Done ##
 * Compiling with and without OpenMAX.
     `make NO_OMX=1`
 

@@ -251,7 +251,7 @@ void * httpClientThread(void *data) {
         int device = -1;
         int scanned = sscanf(path, "/dev/video%d", &device);
 
-        if ((scanned == 1) && (device >= 0) && (device < 10) && uvcDoesCameraExist(device)) {
+        if ((scanned == 1) && (device >= 0) && (device < 20) && uvcDoesCameraExist(device)) {
             stream(client, device);
         } else {
             notFound(client->socket);
@@ -260,7 +260,7 @@ void * httpClientThread(void *data) {
         int device = -1;
         int scanned = sscanf(path, "/dev/still%d", &device);
 
-        if ((scanned == 1) && (device >= 0) && (device < 10) && uvcDoesCameraExist(device)) {
+        if ((scanned == 1) && (device >= 0) && (device < 20) && uvcDoesCameraExist(device)) {
             still(client, device);
         } else {
             notFound(client->socket);

@@ -249,14 +249,18 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     struct v4l2_capability cap;
     int result = xioctl(camera->fd, VIDIOC_QUERYCAP, &cap);
     uvcAssert(result != -1, "VIDIOC_QUERYCAP");
+
+    if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) {
+        printf(COLOR_RED "%s: no capture\n" COLOR_NC, device);
+        goto error;
+    }
+
     uvcAssert(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE, "no capture");
     uvcAssert(cap.capabilities & V4L2_CAP_STREAMING, "no streaming"); // required for mmap
 
     if (!(cap.device_caps & V4L2_CAP_VIDEO_CAPTURE)) {
-        free(camera);
-        int err = close(fd);
-        uvcAssert(err != -1, "close");
-        return NULL;
+        printf(COLOR_RED "%s: no device capture\n" COLOR_NC, device);
+        goto error;
     }
 
     uvcAssert(cap.device_caps & V4L2_CAP_VIDEO_CAPTURE, "no capture");
@@ -300,6 +304,12 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     memset(&streamparam, 0, sizeof streamparam);
     streamparam.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     result = xioctl(camera->fd, VIDIOC_G_PARM, &streamparam);
+
+    if (result == -1) {
+        printf(COLOR_RED "%s: no VIDIOC_G_PARM\n" COLOR_NC, device);
+        goto error;
+    }
+
     uvcAssert(result != -1, "VIDIOC_G_PARM");
 
     if (streamparam.parm.capture.capability & V4L2_CAP_TIMEPERFRAME) {
@@ -380,6 +390,12 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     }
 
     uvcAssert(result != -1, "VIDIOC_REQBUFS");
+    return NULL;
+
+error:
+    free(camera);
+    int err = close(fd);
+    uvcAssert(err != -1, "close");
     return NULL;
 }
 
@@ -522,7 +538,7 @@ static bool captureFrame(uvcCamera_s *camera) {
 //            printf("%08lx %p\n", camera->buf.m.userptr, camera->buffers[camera->buf.index].start);
 //            camera->head = &camera->buffers[(camera->buf.index + NUM_BUFFERS - 1) % NUM_BUFFERS];
             memcpy(camera->head->start, camera->buffers[camera->buf.index].start, camera->head->length);
-            result = xioctl(camera->fd, VIDIOC_QBUF, &buf);
+            result = xioctl(camera->fd, VIDIOC_QBUF, &camera->buf);
             uvcAssert(result != -1, "VIDIOC_QBUF");
             break;
     }

@@ -52,7 +52,7 @@ typedef struct {
 } uvcCameraWorker_s;
 
 
-static uvcCameraWorker_s s_video[10];
+static uvcCameraWorker_s s_video[20];
 
 static struct timeval s_timeout = { .tv_sec = 2, .tv_usec = 0 };
 
