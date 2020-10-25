@@ -251,7 +251,7 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     uvcAssert(result != -1, "VIDIOC_QUERYCAP");
 
     if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) {
-        printf(COLOR_RED "%s: no capture\n" COLOR_NC, device);
+//        printf(COLOR_RED "%s: no capture\n" COLOR_NC, device);
         goto error;
     }
 
@@ -259,7 +259,7 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     uvcAssert(cap.capabilities & V4L2_CAP_STREAMING, "no streaming"); // required for mmap
 
     if (!(cap.device_caps & V4L2_CAP_VIDEO_CAPTURE)) {
-        printf(COLOR_RED "%s: no device capture\n" COLOR_NC, device);
+//        printf(COLOR_RED "%s: no device capture\n" COLOR_NC, device);
         goto error;
     }
 
@@ -306,7 +306,7 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
     result = xioctl(camera->fd, VIDIOC_G_PARM, &streamparam);
 
     if (result == -1) {
-        printf(COLOR_RED "%s: no VIDIOC_G_PARM\n" COLOR_NC, device);
+//        printf(COLOR_RED "%s: no VIDIOC_G_PARM\n" COLOR_NC, device);
         goto error;
     }
 
@@ -314,7 +314,7 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
 
     if (streamparam.parm.capture.capability & V4L2_CAP_TIMEPERFRAME) {
         streamparam.parm.capture.timeperframe.numerator = 1;
-        streamparam.parm.capture.timeperframe.denominator = 1;
+        streamparam.parm.capture.timeperframe.denominator = 5;
         printf("FPS: %d\n", streamparam.parm.capture.timeperframe.denominator);
         result = xioctl(camera->fd, VIDIOC_S_PARM, &streamparam);
         uvcAssert(result != -1, "VIDIOC_S_PARM");

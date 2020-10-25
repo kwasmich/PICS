@@ -529,12 +529,12 @@ void uvcInitWorker(int device) {
             assert(err == 0);
             err = pthread_detach(&cameraWorker->thread);
             assert(err == 0);
-            printf(COLOR_YELLOW "uvcInitWorker %d: %08lx\n" COLOR_NC, device, cameraWorker->thread);
+            printf(COLOR_YELLOW "uvcInitWorker for %s: %08lx\n" COLOR_NC, path, cameraWorker->thread);
         } else {
-            printf(COLOR_RED "\nfailed to open %s" COLOR_NC "\n", path);
+//            printf(COLOR_RED "\nfailed to open %s" COLOR_NC "\n", path);
         }
     } else {
-        printf(COLOR_RED "\ncould not find %s" COLOR_NC "\n", path);
+//        printf(COLOR_RED "\ncould not find %s" COLOR_NC "\n", path);
     }
 }
 
@@ -546,5 +546,5 @@ void uvcDeinitWorker(int device) {
 
     uvcCameraWorker_s *cameraWorker = &s_video[device];
     cameraWorker->keepAlive = false;
-    puts("uvcDeinitWorker DONE");
+//    puts("uvcDeinitWorker DONE");
 }
