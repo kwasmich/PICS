@@ -520,7 +520,7 @@ void uvcInitWorker(int device) {
     err = stat(path, &st);
 
     if (err == 0) {
-        cameraWorker->camera = uvcInit(path, 640, 480, V4L2_PIX_FMT_YUYV);
+        cameraWorker->camera = uvcInit(path, 640, 480, V4L2_PIX_FMT_YUYV);  // x and y dimensions must be multiple of 16 for OpenMAX
 
         if (cameraWorker->camera) {
             cameraWorker->imageSize = cameraWorker->camera->width * cameraWorker->camera->height * sizeof(uint8_t);
