@@ -20,11 +20,6 @@
 #include "uvcCapture.h"
 #include "cHelper.h"
 
-#ifndef NO_OMX
-#   include "omxJPEGEnc.h"
-#   include "omxHelper.h"
-#endif
-
 
 
 typedef struct {
@@ -36,10 +31,6 @@ typedef struct {
     pthread_t thread;
 
     uvcCamera_s *camera;
-
-#ifndef NO_OMX
-    OMXContext_s *omx;
-#endif
 
     uint8_t *imageData;
     size_t imageSize;
@@ -56,9 +47,6 @@ static uvcCameraWorker_s s_video[20];
 
 static struct timeval s_timeout = { .tv_sec = 2, .tv_usec = 0 };
 
-#ifndef NO_OMX
-static pthread_mutex_t s_omxMutex = PTHREAD_MUTEX_INITIALIZER;
-#endif
 
 
 // https://gist.github.com/bellbind/6813905
@@ -216,28 +204,6 @@ static void captureImage(uvcCameraWorker_s *cameraWorker) {
         cameraWorker->imageData = cameraWorker->camera->head->start;
         cameraWorker->imageFill = cameraWorker->camera->head->length;
     } else {
-#ifndef NO_OMX
-        switch (cameraWorker->camera->pixelFormat) {
-            case V4L2_PIX_FMT_YUYV:
-                yuyv422_to_yuyv420(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
-                break;
-
-            case V4L2_PIX_FMT_UYVY:
-                uyvy422_to_uyvy420(cameraWorker->camera->head->start, cameraWorker->camera->width, cameraWorker->camera->height);
-                break;
-
-            default:
-                break;
-        }
-
-        result = pthread_mutex_lock(&s_omxMutex);
-        assert(result == 0);
-
-        omxJPEGEncProcess(cameraWorker->omx, cameraWorker->imageData, &cameraWorker->imageFill, cameraWorker->imageSize, cameraWorker->camera->head->start, cameraWorker->camera->head->length);
-
-        result = pthread_mutex_unlock(&s_omxMutex);
-        assert(result == 0);
-#else
         uint8_t *rgb = NULL;
 
         switch (cameraWorker->camera->pixelFormat) {
@@ -256,7 +222,6 @@ static void captureImage(uvcCameraWorker_s *cameraWorker) {
 
         jpeg(&cameraWorker->imageData, &cameraWorker->imageFill, rgb, cameraWorker->camera->width, cameraWorker->camera->height, 25);
         free(rgb);
-#endif
     }
 
     assert(cameraWorker->imageFill <= cameraWorker->imageSize);
@@ -292,30 +257,6 @@ static void stopCamera(uvcCameraWorker_s *cameraWorker) {
 static void * cameraThread(void *data) {
     uvcCameraWorker_s *cameraWorker = data;
     int result;
-
-#ifndef NO_OMX
-    switch (cameraWorker->camera->pixelFormat) {
-        case V4L2_PIX_FMT_YUYV:
-            cameraWorker->omx = omxJPEGEncInit(cameraWorker->camera->width, cameraWorker->camera->height, cameraWorker->camera->height, 7, OMX_COLOR_FormatYCbYCr);
-            break;
-
-        case V4L2_PIX_FMT_UYVY:
-            cameraWorker->omx = omxJPEGEncInit(cameraWorker->camera->width, cameraWorker->camera->height, cameraWorker->camera->height, 7, OMX_COLOR_FormatCbYCrY);
-            break;
-
-        case V4L2_PIX_FMT_YUV420:
-            cameraWorker->omx = omxJPEGEncInit(cameraWorker->camera->width, cameraWorker->camera->height, cameraWorker->camera->height, 7, OMX_COLOR_FormatYUV420PackedPlanar);
-            break;
-
-        case V4L2_PIX_FMT_JPEG:
-            cameraWorker->omx = NULL;
-            break;
-
-        default:
-            puts("unsupported color format");
-            assert(false);
-    }
-#endif
 
     result = pthread_cond_init(&cameraWorker->frameReadyCond, NULL);
     assert(result == 0);
@@ -389,12 +330,6 @@ exit:
     if (cameraWorker->isActive) {
         stopCamera(cameraWorker);
     }
-
-#ifndef NO_OMX
-    if (cameraWorker->omx) {
-        omxJPEGEncDeinit(cameraWorker->omx);
-    }
-#endif
 
 //    puts("cameraThread DONE");
     return NULL;
@@ -520,7 +455,7 @@ void uvcInitWorker(int device) {
     err = stat(path, &st);
 
     if (err == 0) {
-        cameraWorker->camera = uvcInit(path, 640, 480, V4L2_PIX_FMT_YUYV);  // x and y dimensions must be multiple of 16 for OpenMAX
+        cameraWorker->camera = uvcInit(path, 640, 480, V4L2_PIX_FMT_JPEG);  // x and y dimensions must be multiple of 16 for hardware accelerated
 
         if (cameraWorker->camera) {
             cameraWorker->imageSize = cameraWorker->camera->width * cameraWorker->camera->height * sizeof(uint8_t);

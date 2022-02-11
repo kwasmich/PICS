@@ -8,14 +8,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#ifndef NO_OMX
-#   include <bcm_host.h>
-#   define OMX_SKIP64BIT
-#   include <IL/OMX_Core.h>
-#
-#   include "omxHelper.h"
-#endif
-
 #include "httpClient.h"
 #include "uvcCamera.h"
 #include "cHelper.h"
@@ -105,11 +97,6 @@ static void destroy() {
         err = close(s_server_sock);
         assert(err == 0);
     }
-
-#ifndef NO_OMX
-    OMX_Deinit();
-    bcm_host_deinit();
-#endif
 }
 
 
@@ -158,14 +145,6 @@ int main(int argc, char **argv) {
     atexit(destroy);
     signal(SIGINT, terminated);
     signal(SIGPIPE, SIG_IGN); // ignore broken pipe
-
-#ifndef NO_OMX
-    OMX_ERRORTYPE omxErr = OMX_ErrorNone;
-
-    bcm_host_init();
-    omxErr = OMX_Init();
-    omxAssert(omxErr);
-#endif
 
     struct sockaddr_in client_name;
     socklen_t client_name_len = sizeof client_name;
