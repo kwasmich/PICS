@@ -372,7 +372,7 @@ uvcCamera_s * uvcInit(const char *device, uint32_t width, uint32_t height, uint3
 
         printf("%dx%d (%d x %d bytes)\n", camera->width, camera->height, camera->bufferCount, camera->bufferSize);
 
-        for (int i = 0; i < req.count; i++) {
+        for (uint32_t i = 0; i < req.count; i++) {
             struct v4l2_buffer buf;
             memset(&buf, 0, sizeof buf);
             buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -537,7 +537,11 @@ static bool captureFrame(uvcCamera_s *camera) {
 //            printf("%d (%d bytes)\n", camera->buf.index, camera->buf.bytesused);
 //            printf("%08lx %p\n", camera->buf.m.userptr, camera->buffers[camera->buf.index].start);
 //            camera->head = &camera->buffers[(camera->buf.index + NUM_BUFFERS - 1) % NUM_BUFFERS];
+            
             memcpy(camera->head->start, camera->buffers[camera->buf.index].start, camera->head->length);
+            // camera->head->start = camera->buffers[camera->buf.index].start;
+            // camera->head->length = camera->buf.bytesused;
+            
             result = xioctl(camera->fd, VIDIOC_QBUF, &camera->buf);
             uvcAssert(result != -1, "VIDIOC_QBUF");
             break;

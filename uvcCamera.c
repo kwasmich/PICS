@@ -74,10 +74,10 @@ static void jpeg(uint8_t **out_buffer, size_t *out_bufferSize, uint8_t* rgb, uin
 
     struct jpeg_compress_struct compress;
     struct jpeg_error_mgr error;
+    unsigned long size;
     compress.err = jpeg_std_error(&error);
     jpeg_create_compress(&compress);
-    jpeg_mem_dest(&compress, out_buffer, out_bufferSize);
-
+    jpeg_mem_dest(&compress, out_buffer, &size);
     compress.image_width = width;
     compress.image_height = height;
     compress.input_components = 3;
@@ -88,6 +88,8 @@ static void jpeg(uint8_t **out_buffer, size_t *out_bufferSize, uint8_t* rgb, uin
     jpeg_write_scanlines(&compress, image, height);
     jpeg_finish_compress(&compress);
     jpeg_destroy_compress(&compress);
+
+    *out_bufferSize = size;
 
     for (size_t i = 0; i < height; i++) {
         free(image[i]);
@@ -146,8 +148,8 @@ static void convert_422_to_420(uint8_t *yuv, uint32_t const width, uint32_t cons
     uint8_t *src = yuv + offset;
     uint8_t *dst = yuv + offset;
 
-    for (int y = 0; y < height / 2; y++) {
-        for (int x = 0; x < width; x++) {
+    for (uint32_t y = 0; y < height / 2; y++) {
+        for (uint32_t x = 0; x < width; x++) {
             *dst = *src;
             dst += 2;
             src += 2;
@@ -455,6 +457,7 @@ void uvcInitWorker(int device) {
     err = stat(path, &st);
 
     if (err == 0) {
+        // uvcListPixelFormats(path);
         cameraWorker->camera = uvcInit(path, 640, 480, V4L2_PIX_FMT_JPEG);  // x and y dimensions must be multiple of 16 for hardware accelerated
 
         if (cameraWorker->camera) {
@@ -462,7 +465,7 @@ void uvcInitWorker(int device) {
             cameraWorker->imageData = malloc(cameraWorker->imageSize);
             err = pthread_create(&cameraWorker->thread, NULL, cameraThread, &s_video[device]);
             assert(err == 0);
-            err = pthread_detach(&cameraWorker->thread);
+            err = pthread_detach(cameraWorker->thread);
             assert(err == 0);
             printf(COLOR_YELLOW "uvcInitWorker for %s: %08lx\n" COLOR_NC, path, cameraWorker->thread);
         } else {

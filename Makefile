@@ -2,15 +2,17 @@
 #CC=clang
 LIBS=libjpeg
 CFLAGS=
-#CFLAGS+=-fsanitize=address
-CFLAGS+=-g3 -std=gnu11 -Wall -Wextra -pedantic -Wno-gnu -Wno-variadic-macros -O3
+#CFLAGS+=-fsanitize=address -Wno-gnu
+CFLAGS+=-g3 -std=gnu11 -Wall -Wextra -pedantic -Wno-variadic-macros -O3
 #--analyze
 #-fsanitize=address -fno-omit-frame-pointer -funwind-tables -rdynamic
 CFLAGS+=-I.
-CFLAGS+=`pkg-config --cflags $(LIBS)`
+#CFLAGS+=`pkg-config --cflags $(LIBS)`
+CFLAGS+=-I/usr/include
 #LDLIBS+=-fsanitize=address
 LDLIBS+=-L/opt/vc/lib -lpthread
-LDLIBS+=`pkg-config --libs $(LIBS)`
+#LDLIBS+=`pkg-config --libs $(LIBS)`
+LDLIBS+=-ljpeg
 SOURCES=main.c\
         httpClient.c\
         mmapHelper.c\
